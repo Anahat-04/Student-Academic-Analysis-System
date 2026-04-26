@@ -10,7 +10,7 @@ st.title("AI Student Performance System")
 
 
 #  CLEAN DATA 
-
+    
 def clean_data(df):
     df = df.copy()
     df.columns = df.columns.str.strip().str.replace(" ", "_")
@@ -265,7 +265,7 @@ if file:
         styled = (
             filtered[display_cols]
             .style
-            .applymap(highlight_risk, subset=["Risk_Level"])
+            .map(highlight_risk, subset=["Risk_Level"])
             .format(precision=1)
         )
         st.dataframe(styled, use_container_width=True)
