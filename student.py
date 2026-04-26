@@ -9,7 +9,7 @@ st.set_page_config(page_title="AI Student Analytics", layout="wide")
 st.title("AI Student Performance System")
 
 
-# ── CLEAN DATA ────────────────────────────────────────────────────────────────
+# CLEAN DATA 
 
 def clean_data(df):
     df = df.copy()
@@ -25,13 +25,13 @@ def clean_data(df):
     return df
 
 
-# ── DETECT SUBJECTS ───────────────────────────────────────────────────────────
+# DETECT SUBJECTS
 
 def detect_subjects(df):
     return [col.replace("_Marks", "") for col in df.columns if "_Marks" in col]
 
 
-# ── PERFORMANCE SCORE ─────────────────────────────────────────────────────────
+# PERFORMANCE SCORE
 
 def performance_score(row, subjects):
     marks = np.mean([row[f"{s}_Marks"] for s in subjects])
@@ -39,7 +39,7 @@ def performance_score(row, subjects):
     return (marks * 0.7) + (att * 0.3)
 
 
-# ── AT-RISK SCORE & CLASSIFICATION ───────────────────────────────────────────
+# AT-RISK SCORE & CLASSIFICATION
 
 def risk_score(row, subjects):
     avg_marks = np.mean([row[f"{s}_Marks"] for s in subjects])
@@ -68,7 +68,7 @@ RISK_EMOJI = {
 }
 
 
-# ── PREDICTION MODEL ──────────────────────────────────────────────────────────
+# PREDICTION MODEL 
 
 def train_model(df, subjects):
     X = df[[f"{s}_Attendance" for s in subjects]]
@@ -78,7 +78,7 @@ def train_model(df, subjects):
     return model
 
 
-# ── SIDEBAR ───────────────────────────────────────────────────────────────────
+#  SIDEBAR 
 
 page = st.sidebar.radio("Navigation", [
     "Dashboard",
@@ -108,10 +108,8 @@ if file:
     n_at_risk  = (df["Risk_Level"] == "At Risk").sum()
     n_safe     = (df["Risk_Level"] == "Safe").sum()
 
-
-    # ════════════════════════════════════════════════════════════════════════
     # DASHBOARD
-    # ════════════════════════════════════════════════════════════════════════
+
 
     if page == "Dashboard":
         st.subheader("Overview")
@@ -140,13 +138,12 @@ if file:
         marks_cols = [col for col in df.columns if "_Marks" in col]
         avg = df[marks_cols].mean().reset_index()
         avg.columns = ["Subject", "Marks"]
+        avg["Subject"] = avg["Subject"].str.replace("_Marks", "")
         fig = px.bar(avg, x="Subject", y="Marks", title="Subject Performance")
         st.plotly_chart(fig, use_container_width=True)
 
-
-    # ════════════════════════════════════════════════════════════════════════
     # STUDENT ANALYSIS
-    # ════════════════════════════════════════════════════════════════════════
+
 
     elif page == "Student Analysis":
         roll    = st.selectbox("Select Student", df["Roll_No"])
@@ -196,10 +193,8 @@ if file:
                            markers=True, title="Monthly Attendance")
             st.plotly_chart(fig2, use_container_width=True)
 
-
-    # ════════════════════════════════════════════════════════════════════════
     # AT-RISK DETECTION
-    # ════════════════════════════════════════════════════════════════════════
+   
 
     elif page == "At-Risk Detection":
         st.subheader("At-Risk Student Detection")
@@ -270,10 +265,8 @@ if file:
         )
         st.dataframe(styled, use_container_width=True)
 
-
-    # ════════════════════════════════════════════════════════════════════════
     # AI INSIGHTS
-    # ════════════════════════════════════════════════════════════════════════
+
 
     elif page == "AI Insights":
         st.subheader("Smart Insights")
