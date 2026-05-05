@@ -4,12 +4,15 @@ import plotly.express as px
 import plotly.graph_objects as go
 from sklearn.linear_model import LinearRegression
 import numpy as np
+from student_ui import apply_styles
+
 
 st.set_page_config(page_title="AI Student Analytics", layout="wide")
 st.title("AI Student Performance System")
+apply_styles()
 
 
-# CLEAN DATA 
+#CLEAN DATA
 
 def clean_data(df):
     df = df.copy()
@@ -25,13 +28,13 @@ def clean_data(df):
     return df
 
 
-# DETECT SUBJECTS
+#DETECT SUBJECTS
 
 def detect_subjects(df):
     return [col.replace("_Marks", "") for col in df.columns if "_Marks" in col]
 
 
-# PERFORMANCE SCORE
+#PERFORMANCE SCORE
 
 def performance_score(row, subjects):
     marks = np.mean([row[f"{s}_Marks"] for s in subjects])
@@ -39,7 +42,7 @@ def performance_score(row, subjects):
     return (marks * 0.7) + (att * 0.3)
 
 
-# AT-RISK SCORE & CLASSIFICATION
+#AT-RISK SCORE & CLASSIFICATION
 
 def risk_score(row, subjects):
     avg_marks = np.mean([row[f"{s}_Marks"] for s in subjects])
@@ -68,7 +71,45 @@ RISK_EMOJI = {
 }
 
 
-# PREDICTION MODEL 
+#VALIDATE DATA
+
+def validate_data(df, subjects):
+    errors   = []
+    warnings = []
+
+    if not subjects:
+        errors.append("No subject columns found. Columns must be named like 'Maths_Marks' and 'Maths_Attendance'.")
+
+    if df["Roll_No"].duplicated().any():
+        dupes = df[df["Roll_No"].duplicated()]["Roll_No"].tolist()
+        warnings.append(f"Duplicate Roll Numbers found: {dupes}")
+
+    for s in subjects:
+        marks_col = f"{s}_Marks"
+        att_col   = f"{s}_Attendance"
+
+        if df[marks_col].max() > 100:
+            warnings.append(f"{marks_col} has values above 100. Clipped to 100.")
+            df[marks_col] = df[marks_col].clip(0, 100)
+
+        if df[marks_col].min() < 0:
+            warnings.append(f"{marks_col} has negative values. Clipped to 0.")
+            df[marks_col] = df[marks_col].clip(0, 100)
+
+        if df[att_col].max() > 100:
+            warnings.append(f"{att_col} has values above 100. Clipped to 100.")
+            df[att_col] = df[att_col].clip(0, 100)
+
+        if df[marks_col].isna().all():
+            errors.append(f"{marks_col} is completely empty.")
+
+        if df[att_col].isna().all():
+            errors.append(f"{att_col} is completely empty.")
+
+    return df, errors, warnings
+
+
+#PREDICTION MODEL
 
 def train_model(df, subjects):
     X = df[[f"{s}_Attendance" for s in subjects]]
@@ -78,7 +119,7 @@ def train_model(df, subjects):
     return model
 
 
-#  SIDEBAR 
+#SIDEBAR
 
 page = st.sidebar.radio("Navigation", [
     "Dashboard",
@@ -98,6 +139,18 @@ if file:
         st.error("No Roll column found in dataset!")
         st.stop()
 
+    df, errors, warnings = validate_data(df, subjects)
+
+    if errors:
+        for e in errors:
+            st.error(f"❌ {e}")
+        st.stop()
+
+    if warnings:
+        with st.expander("⚠️ Data quality warnings — click to view"):
+            for w in warnings:
+                st.warning(w)
+
     df["Score"]      = df.apply(lambda x: performance_score(x, subjects), axis=1)
     df["Risk_Score"] = df.apply(lambda x: risk_score(x, subjects), axis=1)
     df["Risk_Level"] = df["Risk_Score"].apply(classify_risk)
@@ -107,9 +160,8 @@ if file:
     n_critical = (df["Risk_Level"] == "Critical").sum()
     n_at_risk  = (df["Risk_Level"] == "At Risk").sum()
     n_safe     = (df["Risk_Level"] == "Safe").sum()
-
+    
     # DASHBOARD
-
 
     if page == "Dashboard":
         st.subheader("Overview")
@@ -139,14 +191,18 @@ if file:
         avg = df[marks_cols].mean().reset_index()
         avg.columns = ["Subject", "Marks"]
         avg["Subject"] = avg["Subject"].str.replace("_Marks", "")
-        fig = px.bar(avg, x="Subject", y="Marks", title="Subject Performance")
+        fig = px.bar(
+            avg, x="Subject", y="Marks",
+            title="Subject Performance",
+            template="plotly_dark",
+        )
+        fig.update_yaxes(range=[0, 100])
         st.plotly_chart(fig, use_container_width=True)
 
     # STUDENT ANALYSIS
 
-
     elif page == "Student Analysis":
-        roll    = st.selectbox("Select Student", df["Roll_No"])
+        roll    = st.selectbox("Select Student", sorted(df["Roll_No"]))
         student = df[df["Roll_No"] == roll].iloc[0]
 
         marks_cols = [f"{s}_Marks" for s in subjects]
@@ -179,7 +235,11 @@ if file:
             "Subject": subjects,
             "Marks":   [student[f"{s}_Marks"] for s in subjects],
         })
-        fig = px.line_polar(radar, r="Marks", theta="Subject", line_close=True)
+        fig = px.line_polar(
+            radar, r="Marks", theta="Subject",
+            line_close=True,
+            template="plotly_dark"
+        )
         fig.update_traces(fill="toself")
         st.plotly_chart(fig, use_container_width=True)
 
@@ -189,12 +249,14 @@ if file:
                 "Month":      month_cols,
                 "Attendance": [student[c] for c in month_cols],
             })
-            fig2 = px.line(monthly_data, x="Month", y="Attendance",
-                           markers=True, title="Monthly Attendance")
+            fig2 = px.line(
+                monthly_data, x="Month", y="Attendance",
+                markers=True, title="Monthly Attendance",
+                template="plotly_dark"
+            )
             st.plotly_chart(fig2, use_container_width=True)
 
     # AT-RISK DETECTION
-   
 
     elif page == "At-Risk Detection":
         st.subheader("At-Risk Student Detection")
@@ -203,7 +265,6 @@ if file:
             "Critical < 45 · At Risk 45–65 · Safe > 65"
         )
 
-        # Summary cards
         c1, c2, c3 = st.columns(3)
         c1.metric("🔴 Critical", int(n_critical))
         c2.metric("🟡 At Risk",  int(n_at_risk))
@@ -211,7 +272,6 @@ if file:
 
         st.divider()
 
-        # Donut chart
         donut_df = pd.DataFrame({
             "Status": ["Critical", "At Risk", "Safe"],
             "Count":  [n_critical, n_at_risk, n_safe],
@@ -228,13 +288,13 @@ if file:
                 "Safe":     "#1D9E75",
             },
             title="Risk Distribution",
+            template="plotly_dark"
         )
         fig_donut.update_traces(textposition="inside", textinfo="percent+label")
         st.plotly_chart(fig_donut, use_container_width=True)
 
         st.divider()
 
-        # Filtered colour-coded table
         filter_level = st.selectbox(
             "Filter by risk level",
             ["All", "Critical", "At Risk", "Safe"],
@@ -267,11 +327,10 @@ if file:
 
     # AI INSIGHTS
 
-
     elif page == "AI Insights":
         st.subheader("Smart Insights")
 
-        roll    = st.selectbox("Select Student", df["Roll_No"])
+        roll    = st.selectbox("Select Student", sorted(df["Roll_No"]))
         student = df[df["Roll_No"] == roll].iloc[0]
         rl      = student["Risk_Level"]
 
