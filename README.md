@@ -18,6 +18,6 @@ Upload a CSV or Excel file containing student marks and attendance data. The sys
 
 No installation needed. Just open the link below in any browser:
 
-[Open App](#) ← replace with your Streamlit URL
+https://anahat-04-student-academic-analysis-system-student-wvcz1r.streamlit.app/
 
 Works on mobile, tablet, and desktop.
