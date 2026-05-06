@@ -146,5 +146,35 @@ hr {
 ::-webkit-scrollbar-track { background: #0a0e1a; }
 ::-webkit-scrollbar-thumb { background: rgba(99, 102, 241, 0.4); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(99, 102, 241, 0.7); }
+                
+/* ── PAGE FADE IN ── */
+[data-testid="stAppViewContainer"] {
+    animation: fadeIn 0.5s ease-in-out;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0px);  }
+}
+
+/* ── METRIC CARDS POP IN ── */
+[data-testid="stMetric"] {
+    animation: popIn 0.4s ease-out;
+}
+
+@keyframes popIn {
+    from { opacity: 0; transform: scale(0.95); }
+    to   { opacity: 1; transform: scale(1);    }
+}
+
+/* ── CHART CONTAINERS SLIDE UP ── */
+[data-testid="stPlotlyChart"] {
+    animation: slideUp 0.5s ease-out;
+}
+
+@keyframes slideUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to   { opacity: 1; transform: translateY(0);    }
+}
 </style>
 """, unsafe_allow_html=True)
