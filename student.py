@@ -8,7 +8,10 @@ from student_ui import apply_styles
 
 
 st.set_page_config(page_title="AI Student Analytics", layout="wide")
-st.title("AI Student Performance System")
+st.markdown(
+    "<h1 style='text-align: center;'>AI Student Performance System</h1>",
+    unsafe_allow_html=True
+)
 apply_styles()
 
 
@@ -197,6 +200,8 @@ if file:
             template="plotly_dark",
         )
         fig.update_yaxes(range=[0, 100])
+        fig.update_layout(transition_duration=500,)
+        fig.update_traces(marker_line_width=0,)
         st.plotly_chart(fig, use_container_width=True)
 
     # STUDENT ANALYSIS
@@ -241,6 +246,7 @@ if file:
             template="plotly_dark"
         )
         fig.update_traces(fill="toself")
+        fig.update_layout(polar=dict(radialaxis=dict(range=[0, 100],)),transition=dict(duration=600,easing  ="cubic-in-out",))
         st.plotly_chart(fig, use_container_width=True)
 
         month_cols = [c for c in df.columns if "Attendance_" in c]
@@ -290,7 +296,10 @@ if file:
             title="Risk Distribution",
             template="plotly_dark"
         )
-        fig_donut.update_traces(textposition="inside", textinfo="percent+label")
+        fig_donut.update_traces(textposition="inside", textinfo="percent+label",rotation=90,)
+        fig_donut.update_layout(
+        transition=dict(duration=700,easing="cubic-in-out")
+        )
         st.plotly_chart(fig_donut, use_container_width=True)
 
         st.divider()
