@@ -24,17 +24,6 @@ SAFE_ATTENDANCE = 75
 
 # FUNCTIONS
 
-def convert_attendance(df, cols):
-    for col in cols:
-        if df[col].dtype == object:
-            df[col] = df[col].astype(str).str.lower().str.strip().map({
-                "present": 100, "absent": 0,
-                "yes": 100,     "no": 0,
-                "p": 100,       "a": 0,
-            })
-    return df
-
-
 def normalize_marks(df, cols, max_mark):
     for col in cols:
         df[col] = ((pd.to_numeric(df[col], errors="coerce") / max_mark) * 100).clip(0, 100)
@@ -158,7 +147,6 @@ if file:
 
         df = df_raw[[roll_col] + marks_cols + att_cols].copy()
         df.rename(columns={roll_col: "Roll_No"}, inplace=True)
-        df = convert_attendance(df, att_cols)
         df = normalize_marks(df, marks_cols, max_mark)
 
         subjects = [
