@@ -173,7 +173,7 @@ def generate_pdf_report(student_id, risk_level, risk_score, report_text):
 
 page = st.sidebar.radio("Navigation", [
     "Class Overview",
-    "At-Risk Detection",
+    "Students at Risk",
     "Student Portal",
     "AI Report"
 ])
@@ -318,8 +318,8 @@ if file:
 
     # AT-RISK DETECTION
 
-    elif page == "At-Risk Detection":
-        st.subheader("At-Risk Student Detection")
+    elif page == "Students at Risk":
+        st.subheader("Students at Risk")
         st.caption("Risk Score = (Avg Marks × 0.6) + (Avg Attendance × 0.4) · Critical <45 · At Risk 45–65 · Safe >65")
 
         c1, c2, c3 = st.columns(3)
