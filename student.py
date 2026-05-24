@@ -533,12 +533,11 @@ Write a professional and personalized academic performance report covering these
 4. Attendance Analysis — analyze the attendance pattern and its effect on performance
 5. Specific Recommendations — give 3 to 5 concrete actionable steps the student should take
 6. Predicted Outcome — what will happen if current trend continues vs if student improves
-7. Motivational Closing — end with an encouraging and professional statement
 
 Important instructions:
 - Be specific with numbers throughout the report
 - Write in a professional but supportive tone
-- Do not use bullet points — write in proper paragraphs
+- Use bullet points and small paragraph at end when explaining predicted outcomes
 - Keep the total report under 350 words
 - Address the student directly as "you" throughout
 """
