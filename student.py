@@ -173,9 +173,8 @@ def generate_pdf_report(student_id, risk_level, risk_score, report_text):
 
 page = st.sidebar.radio("Navigation", [
     "Class Overview",
-    "Student Analysis",
     "At-Risk Detection",
-    "Improvement Planner",
+    "Student Portal",
     "AI Report"
 ])
 
@@ -316,54 +315,6 @@ if file:
         fig.update_layout(transition_duration=500)
         st.plotly_chart(fig, use_container_width=True)
 
-    # STUDENT ANALYSIS
-
-    elif page == "Student Analysis":
-        roll    = st.selectbox("Select Student", sorted(df["Roll_No"].astype(str)))
-        student = df[df["Roll_No"].astype(str) == roll].iloc[0]
-
-        marks_cols = [f"{s}_Marks" for s in subjects]
-        att_cols   = [f"{s}_Attendance" for s in subjects]
-        avg_marks  = student[marks_cols].mean()
-        avg_att    = student[att_cols].mean()
-        pred       = model.predict([student[att_cols].values])[0]
-        rl         = student["Risk_Level"]
-
-        st.markdown(
-            f"**Risk Status:** "
-            f"<span style='color:{RISK_COLOR[rl]};font-weight:600'>"
-            f"{RISK_EMOJI[rl]} {rl}</span>",
-            unsafe_allow_html=True,
-        )
-
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Avg Marks",       round(avg_marks, 1))
-        c2.metric("Avg Attendance",  round(avg_att, 1))
-        c3.metric("Predicted Marks", round(pred, 1))
-        c4.metric("Risk Score",      student["Risk_Score"])
-
-        if avg_att < 50:
-            st.error("🚨 Very low attendance!")
-
-        st.divider()
-        st.subheader("Subject-wise Breakdown")
-
-        breakdown_melted = pd.DataFrame({
-            "Subject":    subjects * 2,
-            "Value":      [round(student[f"{s}_Marks"], 1) for s in subjects] +
-                          [round(student[f"{s}_Attendance"], 1) for s in subjects],
-            "Type":       ["Marks"] * len(subjects) + ["Attendance"] * len(subjects),
-        })
-
-        fig = px.bar(
-            breakdown_melted, x="Subject", y="Value",
-            color="Type", barmode="group",
-            title="Marks vs Attendance per Subject",
-            template="plotly_dark",
-            color_discrete_map={"Marks": "#6366f1", "Attendance": "#10b981"}
-        )
-        fig.update_yaxes(range=[0, 100])
-        st.plotly_chart(fig, use_container_width=True)
 
     # AT-RISK DETECTION
 
@@ -408,159 +359,222 @@ if file:
             .format(precision=1),
             use_container_width=True
         )
+    
+    # STUDENT PORTAL
 
-    # IMPROVEMENT PLANNER 
+    elif page == "Student Portal":
 
-    elif page == "Improvement Planner":
-        st.subheader("Improvement Planner")
-        st.caption(
-            f"Target: {SAFE_MARKS}/100 marks and {SAFE_ATTENDANCE}% attendance in every subject"
-        )
-
-        roll    = st.selectbox("Select Student", sorted(df["Roll_No"].astype(str)))
-        student = df[df["Roll_No"].astype(str) == roll].iloc[0]
-        rl      = student["Risk_Level"]
-
-        st.markdown(
-            f"**Current Risk Status:** "
-            f"<span style='color:{RISK_COLOR[rl]};font-weight:600'>"
-            f"{RISK_EMOJI[rl]} {rl}</span> &nbsp;|&nbsp; "
-            f"**Risk Score:** {student['Risk_Score']}",
-            unsafe_allow_html=True,
-        )
+        # Clean portal header
+        st.markdown("""
+        <div style='text-align:center; padding: 20px 0 10px 0;'>
+            <h2 style='color:#6366f1; font-size:1.8rem;'>Student Academic Performance Portal</h2>
+            <p style='color:#94a3b8; font-size:14px;'>
+                Enter your roll number to view your personal performance report
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
 
         st.divider()
 
-        if rl == "Safe":
-            st.success("✅ This student is already in Safe status. No improvement needed.")
+        # Roll number input
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            roll_input = st.text_input(
+                "Enter Your Roll Number",
+                placeholder="STU001",
+                label_visibility="visible"
+            )
+            search = st.button("Check My Performance", type="primary",
+                               use_container_width=True)
 
-        else:
-            current_avg_marks = np.mean([student[f"{s}_Marks"] for s in subjects])
-            current_avg_att   = np.mean([student[f"{s}_Attendance"] for s in subjects])
+        if search and roll_input:
 
-            # ── Paths to Safe Status ──────────────────────────────────────
-            st.subheader("Paths to Safe Status")
+            # Search for student
+            match = df[df["Roll_No"].astype(str).str.strip() == roll_input.strip()]
 
-            marks_gap_overall = max(round(SAFE_MARKS - current_avg_marks, 1), 0)
-            att_gap_overall   = max(round(SAFE_ATTENDANCE - current_avg_att, 1), 0)
+            if match.empty:
+                st.error(f"❌ Roll number **{roll_input}** not found. Please check and try again.")
 
-            col1, col2 = st.columns(2)
+            else:
+                student = match.iloc[0]
+                rl      = student["Risk_Level"]
 
-            with col1:
-                st.markdown("### 📚 Improve Marks")
-                st.metric("Required Avg Marks",  f"{SAFE_MARKS}/100")
-                st.metric("Current Avg Marks",   f"{round(current_avg_marks, 1)}/100")
-                st.metric("Needs to improve by", f"+{marks_gap_overall} points")
-                if marks_gap_overall == 0:
-                    st.success("Marks target already met!")
-                else:
+                st.divider()
+
+                # Welcome banner
+                st.markdown(
+                    f"""
+                    <div style='
+                        background: #111827;
+                        border: 1px solid rgba(99,102,241,0.3);
+                        border-radius: 16px;
+                        padding: 20px 28px;
+                        text-align: center;
+                    '>
+                        <h3 style='color:#e2e8f0; margin:0'>
+                            Roll No: {student['Roll_No']}
+                        </h3>
+                        <p style='color:{RISK_COLOR[rl]}; font-size:1.2rem;
+                                  font-weight:600; margin:8px 0 0 0'>
+                            {RISK_EMOJI[rl]} {rl} Student
+                        </p>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+                st.divider()
+
+                # Key metrics
+                marks_cols = [f"{s}_Marks" for s in subjects]
+                att_cols   = [f"{s}_Attendance" for s in subjects]
+                avg_marks  = round(student[marks_cols].mean(), 1)
+                avg_att    = round(student[att_cols].mean(), 1)
+                pred       = model.predict([student[att_cols].values])[0]
+
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("Your Avg Marks",       avg_marks)
+                c2.metric("Your Avg Attendance",  f"{avg_att}%")
+                c3.metric("Predicted Marks",      round(pred, 1))
+                c4.metric("Your Risk Score",       student["Risk_Score"])
+
+                # Risk specific message
+                if rl == "Critical":
+                    st.error(
+                        "🚨 Your academic status is Critical. "
+                        "Immediate improvement in both marks and attendance is required. "
+                        "Please meet your teacher as soon as possible."
+                    )
+                elif rl == "At Risk":
                     st.warning(
-                        f"Student needs to score at least **{SAFE_MARKS}** "
-                        f"in every subject to meet the marks target."
+                        "⚠️ You are At Risk. "
+                        "You need to improve your marks and attendance "
+                        "to reach Safe status. Check your subject details below."
+                    )
+                else:
+                    st.success(
+                        "✅ You are performing well and are in Safe status. "
+                        "Keep it up and maintain your current effort!"
                     )
 
-            with col2:
-                st.markdown("### 📅 Improve Attendance")
-                st.metric("Required Avg Attendance", f"{SAFE_ATTENDANCE}%")
-                st.metric("Current Avg Attendance",  f"{round(current_avg_att, 1)}%")
-                st.metric("Needs to improve by",     f"+{att_gap_overall}%")
-                if att_gap_overall == 0:
-                    st.success("Attendance target already met!")
-                else:
-                    st.warning(
-                        f"Student needs at least **{SAFE_ATTENDANCE}%** "
-                        f"attendance in every subject to meet the attendance target."
-                    )
+                st.divider()
 
-            st.divider()
+                # Subject wise breakdown
+                st.subheader("Your Subject-wise Performance")
 
-            #Subject-wise Improvement Table with AI Tips 
-            st.subheader("Subject-wise Improvement Needed")
-            st.caption("Red = needs urgent attention · Orange = needs improvement · Green = target met")
+                rows = []
+                for s in subjects:
+                    m     = round(student[f"{s}_Marks"], 1)
+                    a     = round(student[f"{s}_Attendance"], 1)
+                    m_gap = max(round(SAFE_MARKS - m, 1), 0)
+                    a_gap = max(round(SAFE_ATTENDANCE - a, 1), 0)
 
-            rows = []
-            for s in subjects:
-                m         = round(student[f"{s}_Marks"], 1)
-                a         = round(student[f"{s}_Attendance"], 1)
-                m_gap     = max(round(SAFE_MARKS - m, 1), 0)
-                a_gap     = max(round(SAFE_ATTENDANCE - a, 1), 0)
+                    if m < SAFE_MARKS and a < SAFE_ATTENDANCE:
+                        status = "⚠️ Needs Attention"
+                        tip    = "Improve both marks and attendance"
+                    elif m < SAFE_MARKS:
+                        status = "📚 Low Marks"
+                        tip    = "Focus on improving marks"
+                    elif a < SAFE_ATTENDANCE:
+                        status = "📅 Low Attendance"
+                        tip    = "Attend more classes"
+                    else:
+                        status = "✅ On Track"
+                        tip    = "Keep it up"
 
-                # AI tip for this subject
-                if m < SAFE_MARKS and a < SAFE_ATTENDANCE:
-                    tip = f"Both marks and attendance need improvement"
-                elif m < SAFE_MARKS:
-                    tip = f"Focus on improving marks — attendance is fine"
-                elif a < SAFE_ATTENDANCE:
-                    tip = f"Attend more classes — marks are fine"
-                else:
-                    tip = "✅ Target met in this subject"
+                    rows.append({
+                        "Subject":          s,
+                        "Your Marks":       m,
+                        "Marks Gap":        m_gap,
+                        "Your Attendance":  a,
+                        "Attendance Gap":   a_gap,
+                        "Status":           status,
+                        "What to do":       tip,
+                    })
 
-                rows.append({
-                    "Subject":            s,
-                    "Current Marks":      m,
-                    "Marks Needed":       SAFE_MARKS,
-                    "Marks Gap":          m_gap,
-                    "Current Attendance": a,
-                    "Attendance Needed":  SAFE_ATTENDANCE,
-                    "Attendance Gap":     a_gap,
-                    "Tip":               tip,
+                portal_df = pd.DataFrame(rows)
+
+                def color_status(val):
+                    if "✅" in str(val): return "color:#1D9E75;font-weight:600"
+                    if "⚠️" in str(val): return "color:#E24B4A;font-weight:600"
+                    return "color:#EF9F27;font-weight:600"
+
+                def color_gap(val):
+                    if val <= 0:   return "color:#1D9E75;font-weight:600"
+                    elif val < 10: return "color:#EF9F27;font-weight:600"
+                    return "color:#E24B4A;font-weight:600"
+
+                st.dataframe(
+                    portal_df.style
+                    .map(color_status, subset=["Status"])
+                    .map(color_gap, subset=["Marks Gap", "Attendance Gap"])
+                    .format(precision=1, subset=[
+                        "Your Marks", "Marks Gap",
+                        "Your Attendance", "Attendance Gap"
+                    ]),
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+                st.divider()
+
+                # Visual bar chart for student
+                st.subheader("Your Marks vs Attendance")
+
+                chart_df = pd.DataFrame({
+                    "Subject": subjects * 2,
+                    "Value":   [student[f"{s}_Marks"] for s in subjects] +
+                               [student[f"{s}_Attendance"] for s in subjects],
+                    "Type":    ["Your Marks"] * len(subjects) +
+                               ["Your Attendance"] * len(subjects),
                 })
 
-            imp_df = pd.DataFrame(rows)
+                fig = px.bar(
+                    chart_df, x="Subject", y="Value",
+                    color="Type", barmode="group",
+                    title="Your Marks and Attendance per Subject",
+                    template="plotly_dark",
+                    color_discrete_map={
+                        "Your Marks":      "#6366f1",
+                        "Your Attendance": "#10b981",
+                    }
+                )
+                fig.add_hline(
+                    y=SAFE_MARKS, line_dash="dash",
+                    line_color="#E24B4A", line_width=2,
+                    annotation_text=f"Target ({SAFE_MARKS})",
+                    annotation_position="top right"
+                )
+                fig.update_yaxes(range=[0, 100])
+                st.plotly_chart(fig, use_container_width=True)
 
-            def color_gap(val):
-                if val <= 0:   return "color:#1D9E75;font-weight:600"
-                elif val < 10: return "color:#EF9F27;font-weight:600"
-                return "color:#E24B4A;font-weight:600"
+                st.divider()
 
-            def color_tip(val):
-                if "✅" in str(val):     return "color:#1D9E75"
-                if "Both" in str(val):   return "color:#E24B4A"
-                return "color:#EF9F27"
+                # Improvement summary for student
+                if rl != "Safe":
+                    st.subheader("What You Need to Reach Safe Status")
 
-            st.dataframe(
-                imp_df.style
-                .map(color_gap, subset=["Marks Gap", "Attendance Gap"])
-                .map(color_tip, subset=["Tip"])
-                .format(precision=1, subset=[
-                    "Current Marks","Marks Needed","Marks Gap",
-                    "Current Attendance","Attendance Needed","Attendance Gap"
-                ]),
-                use_container_width=True,
-                hide_index=True
-            )
+                    current_avg_marks = np.mean([student[f"{s}_Marks"] for s in subjects])
+                    current_avg_att   = np.mean([student[f"{s}_Attendance"] for s in subjects])
+                    marks_gap_overall = max(round(SAFE_MARKS - current_avg_marks, 1), 0)
+                    att_gap_overall   = max(round(SAFE_ATTENDANCE - current_avg_att, 1), 0)
 
-            st.divider()
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        st.markdown("### 🎯 Marks Target")
+                        st.metric("You need to score at least", f"{SAFE_MARKS}/100")
+                        st.metric("You need to improve by",     f"+{marks_gap_overall} points")
 
-            # Visual gap chart
-            st.subheader("Visual Gap Chart")
+                    with c2:
+                        st.markdown("### 📅 Attendance Target")
+                        st.metric("You need at least",      f"{SAFE_ATTENDANCE}%")
+                        st.metric("You need to improve by", f"+{att_gap_overall}%")
 
-            gap_df = pd.DataFrame({
-                "Subject": subjects * 2,
-                "Value":   [student[f"{s}_Marks"] for s in subjects] +
-                           [student[f"{s}_Attendance"] for s in subjects],
-                "Type":    ["Marks"] * len(subjects) +
-                           ["Attendance"] * len(subjects),
-            })
+        elif search and not roll_input:
+            st.warning("Please enter your roll number first.")
 
-            fig = px.bar(
-                gap_df, x="Subject", y="Value",
-                color="Type", barmode="group",
-                title=f"Current vs Target ({SAFE_MARKS} marks / {SAFE_ATTENDANCE}% attendance)",
-                template="plotly_dark",
-                color_discrete_map={"Marks": "#6366f1", "Attendance": "#10b981"}
-            )
-            fig.add_hline(
-                y=SAFE_MARKS, line_dash="dash",
-                line_color="#E24B4A", line_width=2,
-                annotation_text=f"Target ({SAFE_MARKS})",
-                annotation_position="top right"
-            )
-            fig.update_yaxes(range=[0, 100])
-            st.plotly_chart(fig, use_container_width=True)
-    # ════════════════════════════════════════════════════════════════════════
+
     # AI REPORT
-    # ════════════════════════════════════════════════════════════════════════
 
     elif page == "AI Report":
         st.subheader("AI Generated Student Report")
