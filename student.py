@@ -540,6 +540,8 @@ Important instructions:
 - Use bullet points and small paragraph at end when explaining predicted outcomes
 - Keep the total report under 350 words
 - Address the student directly as "you" throughout
+- Do not use markdown and ** Symbols
+- Use plain highlighted headings only
 """
 
         if st.button("Generate AI Report", type="primary"):
