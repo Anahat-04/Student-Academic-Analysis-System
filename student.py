@@ -4,7 +4,7 @@ import numpy as np
 import plotly.express as px
 from sklearn.linear_model import LinearRegression
 from student_ui import apply_styles
-
+from groq import Groq
 
 # CONFIG
 
@@ -90,6 +90,7 @@ page = st.sidebar.radio("Navigation", [
     "Student Analysis",
     "At-Risk Detection",
     "Improvement Planner",
+    "AI Report"
 ])
 
 file = st.file_uploader("Upload dataset", type=["csv", "xlsx"])
@@ -322,7 +323,7 @@ if file:
             use_container_width=True
         )
 
-    # IMPROVEMENT PLANNER  (merged with AI Insights)
+    # IMPROVEMENT PLANNER 
 
     elif page == "Improvement Planner":
         st.subheader("Improvement Planner")
@@ -471,6 +472,129 @@ if file:
             )
             fig.update_yaxes(range=[0, 100])
             st.plotly_chart(fig, use_container_width=True)
+    # ════════════════════════════════════════════════════════════════════════
+    # AI REPORT
+    # ════════════════════════════════════════════════════════════════════════
+
+    elif page == "AI Report":
+        st.subheader("AI Generated Student Report")
+        st.caption("Powered by Groq AI — generates a personalized academic report for each student")
+
+        roll    = st.selectbox("Select Student", sorted(df["Roll_No"].astype(str)))
+        student = df[df["Roll_No"].astype(str) == roll].iloc[0]
+        rl      = student["Risk_Level"]
+
+        st.markdown(
+            f"**Risk Status:** "
+            f"<span style='color:{RISK_COLOR[rl]};font-weight:600'>"
+            f"{RISK_EMOJI[rl]} {rl}</span> &nbsp;|&nbsp; "
+            f"**Risk Score:** {student['Risk_Score']}",
+            unsafe_allow_html=True,
+        )
+
+        st.divider()
+
+        # Build subject details for prompt
+        subject_details = ""
+        for s in subjects:
+            m     = round(student[f"{s}_Marks"], 1)
+            a     = round(student[f"{s}_Attendance"], 1)
+            m_gap = max(round(SAFE_MARKS - m, 1), 0)
+            a_gap = max(round(SAFE_ATTENDANCE - a, 1), 0)
+            subject_details += (
+                f"- {s}: Marks = {m}/100 "
+                f"(gap to target: {m_gap}), "
+                f"Attendance = {a}% "
+                f"(gap to target: {a_gap}%)\n"
+            )
+
+        avg_marks = round(student[[f"{s}_Marks" for s in subjects]].mean(), 1)
+        avg_att   = round(student[[f"{s}_Attendance" for s in subjects]].mean(), 1)
+
+        prompt = f"""
+You are an experienced academic advisor analyzing a student's performance data from a college.
+
+Student Roll No : {roll}
+Risk Level      : {rl}
+Risk Score      : {student['Risk_Score']} out of 100
+Avg Marks       : {avg_marks} out of 100
+Avg Attendance  : {avg_att}%
+
+Subject-wise breakdown:
+{subject_details}
+
+Safe target thresholds: {SAFE_MARKS} marks and {SAFE_ATTENDANCE}% attendance in every subject.
+
+Write a professional and personalized academic performance report covering these sections:
+
+1. Overall Assessment — summarize the student's current academic standing clearly
+2. Strong Areas — mention subjects where the student is doing well with specific numbers
+3. Areas of Concern — mention weak subjects with specific marks and attendance numbers and explain the impact
+4. Attendance Analysis — analyze the attendance pattern and its effect on performance
+5. Specific Recommendations — give 3 to 5 concrete actionable steps the student should take
+6. Predicted Outcome — what will happen if current trend continues vs if student improves
+7. Motivational Closing — end with an encouraging and professional statement
+
+Important instructions:
+- Be specific with numbers throughout the report
+- Write in a professional but supportive tone
+- Do not use bullet points — write in proper paragraphs
+- Keep the total report under 350 words
+- Address the student directly as "you" throughout
+"""
+
+        if st.button("Generate AI Report", type="primary"):
+            with st.spinner("Generating personalized report..."):
+                try:
+                    from groq import Groq
+
+                    client = Groq(api_key=st.secrets["GROQ_API_KEY"])
+
+                    response = client.chat.completions.create(
+                        model="llama3-8b-8192",
+                        messages=[{"role": "user", "content": prompt}],
+                        max_tokens=1024,
+                        temperature=0.7,
+                    )
+
+                    report = response.choices[0].message.content
+
+                    st.divider()
+
+                    # Display report in styled card
+                    st.markdown(
+                        f"""
+                        <div style='
+                            background: #111827;
+                            border: 1px solid rgba(99, 102, 241, 0.3);
+                            border-radius: 16px;
+                            padding: 28px 32px;
+                            line-height: 1.9;
+                            color: #e2e8f0;
+                            font-size: 15px;
+                            font-family: Space Grotesk, sans-serif;
+                        '>
+                        {report.replace(chr(10), "<br>")}
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+
+                    st.divider()
+
+                    st.download_button(
+                        label="⬇️ Download Report as Text",
+                        data=f"Academic Performance Report\nStudent: {roll}\n\n{report}",
+                        file_name=f"report_{roll}.txt",
+                        mime="text/plain"
+                    )
+
+                except Exception as e:
+                    st.error(f"❌ Error generating report: {e}")
+
+        else:
+            st.info("👆 Select a student and click Generate AI Report to create their personalized report.")
+
 
 else:
     st.info("👆 Upload a dataset to begin")
