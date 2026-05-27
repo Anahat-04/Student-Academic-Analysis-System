@@ -429,7 +429,7 @@ if file:
         fig = px.bar(avg, x="Subject", y="Marks",
                      title="Subject Performance", template="plotly_dark")
         fig.update_yaxes(range=[0, 100])
-        fig.update_layout(transition_duration=500)
+        fig.update_layout(margin=dict(l=10, r=10, t=50, b=10),transition_duration=500)
         st.plotly_chart(fig, use_container_width=True)
 
 
@@ -840,4 +840,4 @@ if not file:
 
 
     </div>
-    """, height=300)
+    """, height=700)
