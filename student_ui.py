@@ -88,6 +88,8 @@ h2, h3 {
     border-radius: 16px !important;
     padding: 20px !important;
     transition: all 0.3s !important;
+    max-width: 480px !important;
+    margin: 0 auto !important;
 }
 
 [data-testid="stFileUploader"]:hover {
