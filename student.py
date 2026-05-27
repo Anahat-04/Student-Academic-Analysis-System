@@ -16,12 +16,42 @@ from reportlab.platypus import (
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.pagesizes import letter
+import streamlit.components.v1 as components
 
 # CONFIG
 
 st.set_page_config(page_title="AI Student Analytics", layout="wide")
-st.title("AI Student Performance System")
 apply_styles()
+
+st.markdown("""
+<link rel="stylesheet" 
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+
+<div style='padding: 8px 0 24px 0; text-align:center;'>
+    <div style='display:flex; align-items:center; justify-content:center; gap:12px;'>
+        <div style='
+            background: linear-gradient(135deg, #6366f1, #10b981);
+            border-radius: 12px;
+            width: 48px;
+            height: 48px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        '>
+            <i class="fas fa-users" 
+               style="color:white; font-size:22px;"></i>
+        </div>
+        <div>
+            <div style='font-size:1.8rem; font-weight:700;
+                        background:linear-gradient(135deg,#6366f1,#10b981);
+                        -webkit-background-clip:text;
+                        -webkit-text-fill-color:transparent'>
+                Student Performance Analytics System
+            </div>
+        </div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
 
 
 # CONSTANTS 
@@ -186,9 +216,9 @@ if file:
     df_raw.columns = df_raw.columns.str.strip().str.replace(" ", "_")
     all_cols = df_raw.columns.tolist()
 
-    already_standard = any("_Marks" in c for c in all_cols)
+    already_standard = any("_Marks" in c for c in all_cols) or st.session_state.get("mapping_confirmed", False)
 
-    if already_standard:
+    if already_standard and not st.session_state.get("mapping_confirmed", False):
         df       = df_raw.copy()
         subjects = [c.replace("_Marks", "") for c in df.columns if "_Marks" in c]
         for col in df.columns:
@@ -198,6 +228,33 @@ if file:
             if "mark" in col.lower() or "att" in col.lower():
                 df[col] = df[col].astype(str).str.replace("%", "")
                 df[col] = pd.to_numeric(df[col], errors="coerce")
+        df.fillna(df.mean(numeric_only=True), inplace=True)
+
+    elif st.session_state.get("mapping_confirmed", False):
+        # Use saved mapping from session state
+        roll_col   = st.session_state["roll_col"]
+        marks_cols = st.session_state["marks_cols"]
+        att_cols   = st.session_state["att_cols"]
+        max_mark   = st.session_state["max_mark"]
+
+        df = df_raw[[roll_col] + marks_cols + att_cols].copy()
+        df.rename(columns={roll_col: "Roll_No"}, inplace=True)
+        df = normalize_marks(df, marks_cols, max_mark)
+
+        subjects = [
+            c.replace("_score","").replace("_marks","")
+             .replace("_grade","").replace("-","_")
+             .strip().title().replace(" ","_")
+            for c in marks_cols
+        ]
+
+        for i, s in enumerate(subjects):
+            df.rename(columns={marks_cols[i]: f"{s}_Marks"}, inplace=True)
+            if i < len(att_cols):
+                df.rename(columns={att_cols[i]: f"{s}_Attendance"}, inplace=True)
+            else:
+                df[f"{s}_Attendance"] = 75
+
         df.fillna(df.mean(numeric_only=True), inplace=True)
 
     else:
@@ -217,11 +274,65 @@ if file:
             st.stop()
 
         if st.button("Confirm and Analyse", type="primary"):
-            st.session_state["mapping_confirmed"] = True
-            st.session_state["roll_col"]          = roll_col
-            st.session_state["marks_cols"]        = marks_cols
-            st.session_state["att_cols"]          = att_cols
-            st.session_state["max_mark"]          = max_mark
+
+            # ── Validate selections make sense ────────────────────────────
+            mapping_errors = []
+
+            # Check marks and attendance count match
+            if has_att and len(att_cols) > 0:
+                if len(att_cols) != len(marks_cols):
+                    mapping_errors.append(
+                        f"You selected {len(marks_cols)} marks column(s) "
+                        f"but {len(att_cols)} attendance column(s). "
+                        f"These must match — one attendance column per subject."
+                    )
+
+            # Check no column used twice
+            overlap = set(marks_cols) & set(att_cols)
+            if overlap:
+                mapping_errors.append(
+                    f"These columns are selected as both marks and attendance: "
+                    f"{', '.join(overlap)}. Each column can only be used once."
+                )
+
+            # Check roll column not in marks or attendance
+            if roll_col in marks_cols or roll_col in att_cols:
+                mapping_errors.append(
+                    f"Roll No column '{roll_col}' cannot also be a marks or attendance column."
+                )
+
+            # Warn if column names suggest mismatch
+            # e.g. Maths_score selected as attendance
+            suspicious = []
+            for i, mc in enumerate(marks_cols):
+                if i < len(att_cols):
+                    ac = att_cols[i]
+                    mc_subject = mc.lower().replace("_score","").replace("_marks","").replace("_grade","").strip()
+                    ac_subject = ac.lower().replace("_attendance","").replace("_att","").strip()
+                    if mc_subject != ac_subject:
+                        suspicious.append(
+                            f"'{mc}' (marks) is paired with '{ac}' (attendance) "
+                            f"— these seem to be from different subjects."
+                        )
+
+            if mapping_errors:
+                for err in mapping_errors:
+                    st.error(f"❌ {err}")
+
+            else:
+                if suspicious:
+                    st.warning(
+                        "⚠️ Possible mismatch detected — please confirm these pairings are correct:\n\n"
+                        + "\n".join(f"• {s}" for s in suspicious)
+                    )
+                    if not st.checkbox("I confirm these pairings are correct, proceed anyway"):
+                        st.stop()
+
+                st.session_state["mapping_confirmed"] = True
+                st.session_state["roll_col"]          = roll_col
+                st.session_state["marks_cols"]        = marks_cols
+                st.session_state["att_cols"]          = att_cols
+                st.session_state["max_mark"]          = max_mark
 
         if not st.session_state.get("mapping_confirmed"):
             st.stop()
@@ -381,7 +492,7 @@ if file:
         with col2:
             roll_input = st.text_input(
                 "Enter Your Roll Number",
-                placeholder="STU001",
+                placeholder="e.g. 1 / STU001",
                 label_visibility="visible"
             )
             search = st.button("Check My Performance", type="primary",
@@ -580,7 +691,7 @@ if file:
         st.subheader("AI Generated Student Report")
         st.caption("Powered by Groq AI — generates a personalized academic report for each student")
 
-        roll    = st.selectbox("Select Student", sorted(df["Roll_No"].astype(str)))
+        roll    = st.selectbox("Select Student", sorted(df["Roll_No"].astype(str), key=lambda x: int(x) if x.isdigit() else x))
         student = df[df["Roll_No"].astype(str) == roll].iloc[0]
         rl      = student["Risk_Level"]
 
@@ -702,6 +813,30 @@ Important instructions:
         else:
             st.info("👆 Select a student and click Generate AI Report to create their personalized report.")
 
+if not file:
+    components.html("""
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <div style='display:flex; justify-content:center; gap:16px; flex-wrap:wrap; margin-top:24px; max-width:900px; margin-left:auto; margin-right:auto;'>
 
-else:
-    st.info("👆 Upload a dataset to begin")
+        <div style='background:#111827; border:1px solid rgba(99,102,241,0.2); border-radius:14px; padding:20px 24px; width:190px; text-align:center;'>
+            <i class="fas fa-triangle-exclamation" style="color:#E24B4A; font-size:24px;"></i>
+            <div style='color:#e2e8f0; font-weight:600; font-size:14px; margin:10px 0 6px 0'>Early Risk Alerts</div>
+        </div>
+
+        <div style='background:#111827; border:1px solid rgba(99,102,241,0.2); border-radius:14px; padding:20px 24px; width:190px; text-align:center;'>
+            <i class="fas fa-robot" style="color:#6366f1; font-size:24px;"></i>
+            <div style='color:#e2e8f0; font-weight:600; font-size:14px; margin:10px 0 6px 0'>AI Report per Student</div>
+        </div>
+
+        <div style='background:#111827; border:1px solid rgba(99,102,241,0.2); border-radius:14px; padding:20px 24px; width:190px; text-align:center;'>
+            <i class="fas fa-list-check" style="color:#EF9F27; font-size:24px;"></i>
+            <div style='color:#e2e8f0; font-weight:600; font-size:14px; margin:10px 0 6px 0'>Improvement Plan</div>
+        </div>
+
+        <div style='background:#111827; border:1px solid rgba(99,102,241,0.2); border-radius:14px; padding:20px 24px; width:190px; text-align:center;'>
+            <i class="fas fa-user-check" style="color:#6366f1; font-size:24px;"></i>
+            <div style='color:#e2e8f0; font-weight:600; font-size:14px; margin:10px 0 6px 0'>Student Portal</div>
+        </div>
+
+    </div>
+    """, height=120)
