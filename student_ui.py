@@ -160,5 +160,71 @@ hr {
 ::-webkit-scrollbar-track { background: #0a0e1a; }
 ::-webkit-scrollbar-thumb { background: rgba(99, 102, 241, 0.4); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(99, 102, 241, 0.7); }
+
+@media (max-width: 768px) {
+
+    .block-container {
+        padding-top: 1rem !important;
+        padding-left: 1rem !important;
+        padding-right: 1rem !important;
+        padding-bottom: 1rem !important;
+    }
+
+    h1 {
+        font-size:clamp(1.6rem, 5vw, 2.5rem); !important;
+        line-height: 1.3 !important;
+        text-align: center !important;
+    }
+
+    h2 {
+        font-size: 1.4rem !important;
+    }
+
+    h3 {
+        font-size: 1.1rem !important;
+    }
+
+    p {
+        font-size: 14px !important;
+    }
+
+    [data-testid="stMetric"] {
+        padding: 14px !important;
+        border-radius: 12px !important;
+    }
+
+    [data-testid="stMetricValue"] {
+        font-size: 1.4rem !important;
+    }
+
+    [data-testid="stMetricLabel"] {
+        font-size: 11px !important;
+    }
+
+    [data-testid="stFileUploader"] {
+        padding: 14px !important;
+        max-width: 100% !important;
+    }
+
+    .stButton > button {
+        width: 100% !important;
+        padding: 0.8rem !important;
+        font-size: 14px !important;
+        border-radius: 10px !important;
+    }
+
+    [data-testid="stSidebar"] {
+        min-width: 220px !important;
+    }
+
+    iframe {
+        width: 100% !important;
+    }
+
+    .stDataFrame {
+        overflow-x: auto !important;
+    }
+
+}
 </style>
 """, unsafe_allow_html=True)
