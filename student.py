@@ -78,16 +78,22 @@ def performance_score(row, subjects):
 
 
 def risk_score(row, subjects):
-    marks = np.mean([row[f"{s}_Marks"] for s in subjects])
-    att   = np.mean([row[f"{s}_Attendance"] for s in subjects])
-    return round((marks * 0.6) + (att * 0.4), 2)
-
+    marks = np.mean([
+        row[f"{s}_Marks"] for s in subjects
+    ])
+    att = np.mean([
+        row[f"{s}_Attendance"] for s in subjects
+    ])
+    performance = (marks * 0.6) + (att * 0.4)
+    risk = 100 - performance
+    return round(risk, 2)
 
 def classify_risk(score):
-    if score < 45:   return "Critical"
-    elif score < 65: return "At Risk"
+    if score >= 55:
+        return "Critical"
+    elif score >= 35:
+        return "At Risk"
     return "Safe"
-
 
 def train_model(df, subjects):
     X = df[[f"{s}_Attendance" for s in subjects]]
@@ -543,11 +549,10 @@ if file:
                 avg_att    = round(student[att_cols].mean(), 1)
                 pred       = model.predict([student[att_cols].values])[0]
 
-                c1, c2, c3, c4 = st.columns(4)
+                c1, c2, c3 = st.columns(3)
                 c1.metric("Your Avg Marks",       avg_marks)
                 c2.metric("Your Avg Attendance",  f"{avg_att}%")
-                c3.metric("Predicted Marks",      round(pred, 1))
-                c4.metric("Your Risk Score",       student["Risk_Score"])
+                c3.metric("Your Risk Score",       student["Risk_Score"])
 
                 # Risk specific message
                 if rl == "Critical":
@@ -835,4 +840,4 @@ if not file:
 
 
     </div>
-    """, height=2400)
+    """, height=300)
