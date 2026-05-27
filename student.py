@@ -823,20 +823,16 @@ if not file:
             <div style='color:#e2e8f0; font-weight:600; font-size:14px; margin:10px 0 6px 0'>Early Risk Alerts</div>
         </div>
 
-        <div style='background:#111827; border:1px solid rgba(99,102,241,0.2); border-radius:14px; padding:20px 24px; width:190px; text-align:center;'>
-            <i class="fas fa-robot" style="color:#6366f1; font-size:24px;"></i>
-            <div style='color:#e2e8f0; font-weight:600; font-size:14px; margin:10px 0 6px 0'>AI Report per Student</div>
-        </div>
-
-        <div style='background:#111827; border:1px solid rgba(99,102,241,0.2); border-radius:14px; padding:20px 24px; width:190px; text-align:center;'>
+                            <div style='background:#111827; border:1px solid rgba(99,102,241,0.2); border-radius:14px; padding:20px 24px; width:190px; text-align:center;'>
             <i class="fas fa-list-check" style="color:#EF9F27; font-size:24px;"></i>
             <div style='color:#e2e8f0; font-weight:600; font-size:14px; margin:10px 0 6px 0'>Improvement Plan</div>
         </div>
-
+        
         <div style='background:#111827; border:1px solid rgba(99,102,241,0.2); border-radius:14px; padding:20px 24px; width:190px; text-align:center;'>
-            <i class="fas fa-user-check" style="color:#6366f1; font-size:24px;"></i>
-            <div style='color:#e2e8f0; font-weight:600; font-size:14px; margin:10px 0 6px 0'>Student Portal</div>
+            <i class="fas fa-file-pdf" style="color:#6366f1; font-size:24px;"></i>
+            <div style='color:#e2e8f0; font-weight:600; font-size:14px; margin:10px 0 6px 0'>Individual Student Reports</div>
         </div>
 
+
     </div>
-    """, height=120)
+    """, height=2400)
