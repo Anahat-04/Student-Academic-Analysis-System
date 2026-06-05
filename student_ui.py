@@ -122,7 +122,7 @@ hr {
 }
 
 [data-testid="stCaptionContainer"] {
-    color: #475569 !important;
+    color: #64748b !important;
     font-size: 12px !important;
     font-family: 'JetBrains Mono', monospace !important;
 }
@@ -131,6 +131,58 @@ hr {
     background: #111827 !important;
     border: 1px solid rgba(99, 102, 241, 0.2) !important;
     border-radius: 12px !important;
+}
+
+/* Primary buttons */
+.stButton > button[kind="primary"] {
+    background: linear-gradient(135deg, #6366f1, #4f46e5) !important;
+    border: none !important;
+    color: #fff !important;
+    font-family: 'Space Grotesk', sans-serif !important;
+    font-weight: 600 !important;
+    border-radius: 10px !important;
+    padding: 0.55rem 1.4rem !important;
+    transition: all 0.2s ease !important;
+    box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35) !important;
+}
+
+.stButton > button[kind="primary"]:hover {
+    transform: translateY(-1px) !important;
+    box-shadow: 0 6px 20px rgba(99, 102, 241, 0.5) !important;
+}
+
+/* Secondary / default buttons */
+.stButton > button[kind="secondary"],
+.stButton > button {
+    background: #111827 !important;
+    border: 1px solid rgba(99, 102, 241, 0.3) !important;
+    color: #e2e8f0 !important;
+    font-family: 'Space Grotesk', sans-serif !important;
+    border-radius: 10px !important;
+    transition: all 0.2s ease !important;
+}
+
+.stButton > button[kind="secondary"]:hover,
+.stButton > button:hover {
+    border-color: rgba(99, 102, 241, 0.6) !important;
+    background: rgba(99, 102, 241, 0.1) !important;
+}
+
+/* Download button */
+[data-testid="stDownloadButton"] > button {
+    background: linear-gradient(135deg, #10b981, #059669) !important;
+    border: none !important;
+    color: #fff !important;
+    font-family: 'Space Grotesk', sans-serif !important;
+    font-weight: 600 !important;
+    border-radius: 10px !important;
+    transition: all 0.2s ease !important;
+    box-shadow: 0 4px 14px rgba(16, 185, 129, 0.3) !important;
+}
+
+[data-testid="stDownloadButton"] > button:hover {
+    transform: translateY(-1px) !important;
+    box-shadow: 0 6px 20px rgba(16, 185, 129, 0.45) !important;
 }
 
 [data-testid="stAppViewContainer"] {
@@ -171,7 +223,7 @@ hr {
     }
 
     h1 {
-        font-size:clamp(1.6rem, 5vw, 2.5rem); !important;
+        font-size: clamp(1.6rem, 5vw, 2.5rem) !important;
         line-height: 1.3 !important;
         text-align: center !important;
     }
