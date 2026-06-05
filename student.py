@@ -655,9 +655,9 @@ if file:
             improved = (merged["Trend"] == "📈 Improved").sum()
             stable   = (merged["Trend"] == "➡️ Stable").sum()
             tc1, tc2, tc3 = st.columns(3)
-            tc1.metric("Improved",  int(improved),  delta=f"-{improved} risk",  delta_color="normal")
-            tc2.metric("Worsened",  int(worsened),  delta=f"+{worsened} risk",  delta_color="inverse")
-            tc3.metric("Stable",    int(stable))
+            tc1.metric("Improved", int(improved))
+            tc2.metric("Worsened", int(worsened))
+            tc3.metric("Stable", int(stable))
 
             st.dataframe(
                 merged[["Roll_No", "Prev_Risk_Level", "Risk_Level", "Prev_Risk_Score", "Risk_Score", "Change", "Trend"]]
@@ -821,7 +821,6 @@ if file:
                         '>
                             <div style='color:#94a3b8;font-size:11px;text-transform:uppercase;
                                         letter-spacing:1.2px;margin-bottom:8px'>
-                                🤖 LR Prediction (trained on previous month)
                             </div>
                             <div style='display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px'>
                                 <div>
@@ -838,7 +837,7 @@ if file:
                                         <div style='color:#e2e8f0;font-weight:600'>{actual_score}</div>
                                     </div>
                                     <div style='text-align:center'>
-                                        <div style='color:#94a3b8;font-size:11px'>Delta</div>
+                                        <div style='color:#94a3b8;font-size:11px'>Prediction Gap</div>
                                         <div style='color:{verdict_color};font-weight:700'>{delta_sign}{delta}</div>
                                     </div>
                                 </div>
