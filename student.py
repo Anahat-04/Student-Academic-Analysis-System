@@ -92,10 +92,9 @@ def classify_risk(score):
 def train_lr_model(df, subjects):
     """Linear Regression: predicts Performance Score from attendance features.
     The predicted score is then used to classify risk level."""
-    att_cols = [f"{s}_Attendance" for s in subjects]
-    lr_feature_cols = att_cols
+    lr_feature_cols = [f"{s}_Marks" for s in subjects] + [f"{s}_Attendance" for s in subjects]
     X = df[lr_feature_cols]
-    y = df["Score"]
+    y = df["Risk_Score"]
 
     if len(df) >= 10:
         X_train, X_test, y_train, y_test = train_test_split(
@@ -427,7 +426,7 @@ if file:
 
     # Use LR to classify risk: predict score → apply classify_risk threshold
     df["LR_Predicted_Score"] = lr_model.predict(df[lr_feature_cols]).clip(0, 100)
-    df["Risk_Level"] = df["LR_Predicted_Score"].apply(lambda s: classify_risk(100 - s))
+    df["Risk_Level"] = df["LR_Predicted_Score"].apply(classify_risk)
 
     n_critical = (df["Risk_Level"] == "Critical").sum()
     n_at_risk  = (df["Risk_Level"] == "At Risk").sum()
