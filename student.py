@@ -3,7 +3,9 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.preprocessing import LabelEncoder
+from sklearn.linear_model import LinearRegression
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, mean_absolute_error
 from student_ui import apply_styles
 from groq import Groq
 from reportlab.platypus import (
@@ -13,7 +15,6 @@ from reportlab.platypus import (
     Table,
     TableStyle
 )
-
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.pagesizes import letter
@@ -69,20 +70,14 @@ def normalize_marks(df, cols, max_mark):
         df[col] = ((pd.to_numeric(df[col], errors="coerce") / max_mark) * 100).clip(0, 100)
     return df
 
-
 def performance_score(row, subjects):
     marks = np.mean([row[f"{s}_Marks"] for s in subjects])
     att   = np.mean([row[f"{s}_Attendance"] for s in subjects])
     return round((marks * 0.7) + (att * 0.3), 2)
 
-
 def risk_score(row, subjects):
-    marks = np.mean([
-        row[f"{s}_Marks"] for s in subjects
-    ])
-    att = np.mean([
-        row[f"{s}_Attendance"] for s in subjects
-    ])
+    marks = np.mean([row[f"{s}_Marks"] for s in subjects])
+    att = np.mean([row[f"{s}_Attendance"] for s in subjects])
     performance = (marks * 0.6) + (att * 0.4)
     risk = 100 - performance
     return round(risk, 2)
@@ -94,17 +89,41 @@ def classify_risk(score):
         return "At Risk"
     return "Safe"
 
-def train_model(df, subjects):
-    feature_cols = (
-        [f"{s}_Marks" for s in subjects] +
-        [f"{s}_Attendance" for s in subjects]
-    )
-    X = df[feature_cols]
-    y = df["Risk_Level"]
-    clf = RandomForestClassifier(n_estimators=100, random_state=42)
-    clf.fit(X, y)
-    return clf, feature_cols
+def train_lr_model(df, subjects):
+    """Linear Regression: predicts Performance Score from attendance features.
+    The predicted score is then used to classify risk level."""
+    att_cols = [f"{s}_Attendance" for s in subjects]
+    lr_feature_cols = att_cols
+    X = df[lr_feature_cols]
+    y = df["Score"]
 
+    if len(df) >= 10:
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=0.2, random_state=42
+        )
+        lr = LinearRegression()
+        lr.fit(X_train, y_train)
+        mae = round(mean_absolute_error(y_test, lr.predict(X_test)), 2)
+    else:
+        lr = LinearRegression()
+        lr.fit(X, y)
+        mae = None
+
+    return lr, lr_feature_cols, mae
+
+
+def train_rf_model(df, subjects):
+    """Random Forest: used ONLY for feature importance extraction.
+    Identifies which marks/attendance features most influence risk."""
+    all_feature_cols = [f"{s}_Marks" for s in subjects] + [f"{s}_Attendance" for s in subjects]
+    X = df[all_feature_cols]
+    y = df["Risk_Level"]
+
+    rf = RandomForestClassifier(n_estimators=100, random_state=42, class_weight="balanced")
+    rf.fit(X, y)
+
+    importances = pd.Series(rf.feature_importances_, index=all_feature_cols).sort_values(ascending=False)
+    return rf, all_feature_cols, importances
 
 def highlight_risk(val):
     return {
@@ -112,7 +131,6 @@ def highlight_risk(val):
         "At Risk":  "background-color:#fef3d0;color:#854F0B;font-weight:600",
         "Safe":     "background-color:#eaf3de;color:#3B6D11;font-weight:600",
     }.get(val, "")
-
 
 def validate(df, subjects):
     errors, warnings = [], []
@@ -130,6 +148,18 @@ def validate(df, subjects):
             df[ac] = df[ac].clip(0, 100)
     if df["Roll_No"].duplicated().any():
         warnings.append("Duplicate roll numbers found.")
+
+    # Fix 1: Flag students where ALL marks are 0 — likely missing/bad data
+    marks_cols_check = [f"{s}_Marks" for s in subjects]
+    zero_marks_mask = (df[marks_cols_check] == 0).all(axis=1)
+    if zero_marks_mask.any():
+        bad_rolls = df.loc[zero_marks_mask, "Roll_No"].tolist()
+        warnings.append(
+            f"{len(bad_rolls)} student(s) have zero marks in all subjects "
+            f"(Roll No: {', '.join(str(r) for r in bad_rolls[:5])}{'...' if len(bad_rolls) > 5 else ''}) "
+            f"— these may be data entry errors and could affect risk classification."
+        )
+
     return df, errors, warnings
 
 def generate_pdf_report(student_id, risk_level, risk_score, report_text):
@@ -149,7 +179,6 @@ def generate_pdf_report(student_id, risk_level, risk_score, report_text):
     styles = getSampleStyleSheet()
     elements = []
 
-    # Title
     title = Paragraph(
         "<font size=20 color='#4f46e5'><b>Student Performance Report</b></font>",
         styles['Title']
@@ -157,11 +186,10 @@ def generate_pdf_report(student_id, risk_level, risk_score, report_text):
     elements.append(title)
     elements.append(Spacer(1, 20))
 
-    # Student Info Table
     info_data = [
         ["Student ID", student_id],
-        ["Risk Level", risk_level],
-        ["Risk Score", f"{risk_score}/100"],
+        ["Status", risk_level],
+        ["Score", f"{risk_score}/100"],
     ]
 
     table = Table(info_data, colWidths=[150, 300])
@@ -169,20 +197,16 @@ def generate_pdf_report(student_id, risk_level, risk_score, report_text):
     table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (0, -1), colors.HexColor("#4f46e5")),
         ('TEXTCOLOR', (0, 0), (0, -1), colors.white),
-
         ('BACKGROUND', (1, 0), (1, -1), colors.HexColor("#f3f4f6")),
         ('TEXTCOLOR', (1, 0), (1, -1), colors.black),
-
         ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
-
         ('GRID', (0, 0), (-1, -1), 1, colors.HexColor("#d1d5db")),
     ]))
 
     elements.append(table)
     elements.append(Spacer(1, 25))
 
-    # Report Content
     formatted_report = report_text.replace("\n", "<br/>")
 
     report_paragraph = Paragraph(
@@ -193,7 +217,6 @@ def generate_pdf_report(student_id, risk_level, risk_score, report_text):
     elements.append(report_paragraph)
     elements.append(Spacer(1, 30))
 
-    # Footer
     footer = Paragraph(
         "<font size=9 color='gray'>Generated by AI Student Analytics System</font>",
         styles['Normal']
@@ -216,7 +239,8 @@ page = st.sidebar.radio("Navigation", [
     "AI Report"
 ])
 
-file = st.file_uploader("Upload dataset", type=["csv", "xlsx"])
+file     = st.file_uploader("Upload current dataset", type=["csv", "xlsx"])
+file_prev = st.file_uploader("Upload previous dataset (optional — for trend comparison)", type=["csv", "xlsx"])
 
 if file:
     df_raw = pd.read_csv(file) if file.name.endswith(".csv") else pd.read_excel(file)
@@ -238,7 +262,6 @@ if file:
         df.fillna(df.mean(numeric_only=True), inplace=True)
 
     elif st.session_state.get("mapping_confirmed", False):
-        # Use saved mapping from session state
         roll_col   = st.session_state["roll_col"]
         marks_cols = st.session_state["marks_cols"]
         att_cols   = st.session_state["att_cols"]
@@ -265,9 +288,6 @@ if file:
         df.fillna(df.mean(numeric_only=True), inplace=True)
 
     else:
-        st.subheader("Map Your Dataset Columns")
-        st.caption("Your dataset doesn't follow the standard format. Tell us which columns are which.")
-
         roll_col   = st.selectbox("Student ID / Roll No column", all_cols)
         marks_cols = st.multiselect("Marks columns", [c for c in all_cols if c != roll_col])
         has_att    = st.checkbox("My dataset has attendance columns", value=True)
@@ -281,11 +301,8 @@ if file:
             st.stop()
 
         if st.button("Confirm and Analyse", type="primary"):
-
-            # Validate selections
             mapping_errors = []
 
-            # column match
             if has_att and len(att_cols) > 0:
                 if len(att_cols) != len(marks_cols):
                     mapping_errors.append(
@@ -294,7 +311,6 @@ if file:
                         f"These must match — one attendance column per subject."
                     )
 
-            # unique column 
             overlap = set(marks_cols) & set(att_cols)
             if overlap:
                 mapping_errors.append(
@@ -302,13 +318,11 @@ if file:
                     f"{', '.join(overlap)}. Each column can only be used once."
                 )
 
-            # Check roll column not in marks or attendance
             if roll_col in marks_cols or roll_col in att_cols:
                 mapping_errors.append(
                     f"Roll No column '{roll_col}' cannot also be a marks or attendance column."
                 )
 
-            # Warn if column names suggest mismatch
             suspicious = []
             for i, mc in enumerate(marks_cols):
                 if i < len(att_cols):
@@ -388,11 +402,84 @@ if file:
     df["Score"]      = df.apply(lambda x: performance_score(x, subjects), axis=1)
     df["Risk_Score"] = df.apply(lambda x: risk_score(x, subjects), axis=1)
     df["Risk_Level"] = df["Risk_Score"].apply(classify_risk)
-    model, feature_cols = train_model(df, subjects)
+
+    cache_key = f"model_{file.name}_{len(df)}"
+    if st.session_state.get("model_cache_key") != cache_key:
+        # Linear Regression — classifies risk via predicted performance score
+        lr_model, lr_feature_cols, lr_mae = train_lr_model(df, subjects)
+        # Random Forest — feature importance only (drives Top 5 focus areas)
+        rf_model, rf_feature_cols, feature_importances = train_rf_model(df, subjects)
+
+        st.session_state["model_cache_key"]     = cache_key
+        st.session_state["lr_model"]            = lr_model
+        st.session_state["lr_feature_cols"]     = lr_feature_cols
+        st.session_state["lr_mae"]              = lr_mae
+        st.session_state["rf_model"]            = rf_model
+        st.session_state["rf_feature_cols"]     = rf_feature_cols
+        st.session_state["feature_importances"] = feature_importances
+    else:
+        lr_model            = st.session_state["lr_model"]
+        lr_feature_cols     = st.session_state["lr_feature_cols"]
+        lr_mae              = st.session_state["lr_mae"]
+        rf_model            = st.session_state["rf_model"]
+        rf_feature_cols     = st.session_state["rf_feature_cols"]
+        feature_importances = st.session_state["feature_importances"]
+
+    # Use LR to classify risk: predict score → apply classify_risk threshold
+    df["LR_Predicted_Score"] = lr_model.predict(df[lr_feature_cols]).clip(0, 100)
+    df["Risk_Level"] = df["LR_Predicted_Score"].apply(lambda s: classify_risk(100 - s))
 
     n_critical = (df["Risk_Level"] == "Critical").sum()
     n_at_risk  = (df["Risk_Level"] == "At Risk").sum()
     n_safe     = (df["Risk_Level"] == "Safe").sum()
+
+    # Fix 3: Process previous dataset for trend comparison
+    df_prev = None
+    if file_prev:
+        try:
+            df_prev_raw = pd.read_csv(file_prev) if file_prev.name.endswith(".csv") else pd.read_excel(file_prev)
+            df_prev_raw.columns = df_prev_raw.columns.str.strip().str.replace(" ", "_")
+
+            # Rename Roll_No
+            for col in df_prev_raw.columns:
+                if "roll" in col.lower():
+                    df_prev_raw.rename(columns={col: "Roll_No"}, inplace=True)
+
+            # Strip % and convert numeric cols
+            for col in df_prev_raw.columns:
+                if "mark" in col.lower() or "att" in col.lower() or "score" in col.lower():
+                    df_prev_raw[col] = pd.to_numeric(
+                        df_prev_raw[col].astype(str).str.replace("%", ""), errors="coerce"
+                    )
+
+            # Detect subjects — support both _Marks and _score naming
+            if any("_Marks" in c for c in df_prev_raw.columns):
+                prev_subjects = [c.replace("_Marks", "") for c in df_prev_raw.columns if "_Marks" in c]
+            else:
+                # Map _score -> _Marks, _attendance -> _Attendance to match current format
+                prev_subjects = [c.replace("_score", "") for c in df_prev_raw.columns if c.endswith("_score")]
+                for s in prev_subjects:
+                    if f"{s}_score" in df_prev_raw.columns:
+                        df_prev_raw.rename(columns={f"{s}_score": f"{s}_Marks"}, inplace=True)
+                    if f"{s}_attendance" in df_prev_raw.columns:
+                        df_prev_raw.rename(columns={f"{s}_attendance": f"{s}_Attendance"}, inplace=True)
+
+            if prev_subjects and "Roll_No" in df_prev_raw.columns:
+                # Clip to 100 and fill NaN
+                for s in prev_subjects:
+                    for suffix in ("_Marks", "_Attendance"):
+                        c = f"{s}{suffix}"
+                        if c in df_prev_raw.columns:
+                            df_prev_raw[c] = df_prev_raw[c].clip(0, 100)
+                df_prev_raw.fillna(df_prev_raw.mean(numeric_only=True), inplace=True)
+                df_prev_raw["Risk_Score"] = df_prev_raw.apply(lambda x: risk_score(x, prev_subjects), axis=1)
+                df_prev_raw["Risk_Level"] = df_prev_raw["Risk_Score"].apply(classify_risk)
+                # Normalize Roll_No to str to match current df pipeline
+                df_prev_raw["Roll_No"] = df_prev_raw["Roll_No"].astype(str).str.strip()
+                df_prev = df_prev_raw
+        except Exception as e:
+            st.warning(f"⚠️ Could not process previous dataset: {e}")
+            df_prev = None
 
     # CLASS OVERVIEW
 
@@ -429,22 +516,60 @@ if file:
         fig = px.bar(avg, x="Subject", y="Marks",
                      title="Subject Performance", template="plotly_dark")
         fig.update_yaxes(range=[0, 100])
+        
+        if len(avg) == 1:
+            fig.update_traces(width=0.3)
+            
         fig.update_layout(margin=dict(l=10, r=10, t=50, b=10),transition_duration=500)
         st.plotly_chart(fig, use_container_width=True)
+
+        # Fix 3: Trend comparison table
+        if df_prev is not None:
+            st.divider()
+            st.subheader("Month-on-Month Progress")
+
+            df_curr_trend = df[["Roll_No", "Risk_Score", "Risk_Level"]].copy()
+            df_curr_trend["Roll_No"] = df_curr_trend["Roll_No"].astype(str).str.strip()
+            df_prev_trend = df_prev[["Roll_No", "Risk_Score", "Risk_Level"]].copy()
+            df_prev_trend["Roll_No"] = df_prev_trend["Roll_No"].astype(str).str.strip()
+            merged = df_curr_trend.merge(
+                df_prev_trend.rename(
+                    columns={"Risk_Score": "Prev_Risk_Score", "Risk_Level": "Prev_Risk_Level"}
+                ),
+                on="Roll_No", how="inner"
+            )
+            merged["Change"] = (merged["Risk_Score"] - merged["Prev_Risk_Score"]).round(1)
+            merged["Trend"]  = merged["Change"].apply(
+                lambda x: "📉 Worsened" if x > 2 else ("📈 Improved" if x < -2 else "➡️ Stable")
+            )
+
+            worsened = (merged["Trend"] == "📉 Worsened").sum()
+            improved = (merged["Trend"] == "📈 Improved").sum()
+            stable   = (merged["Trend"] == "➡️ Stable").sum()
+            tc1, tc2, tc3 = st.columns(3)
+            tc1.metric("Improved",  int(improved),  delta=f"-{improved} risk",  delta_color="normal")
+            tc2.metric("Worsened",  int(worsened),  delta=f"+{worsened} risk",  delta_color="inverse")
+            tc3.metric("Stable",    int(stable))
+
+            st.dataframe(
+                merged[["Roll_No", "Prev_Risk_Level", "Risk_Level", "Prev_Risk_Score", "Risk_Score", "Change", "Trend"]]
+                .rename(columns={
+                    "Prev_Risk_Level":  "Previous Status",
+                    "Risk_Level":       "Current Status",
+                    "Prev_Risk_Score":  "Previous Score",
+                    "Risk_Score":       "Current Score",
+                })
+                .sort_values("Change", ascending=False)
+                .style.map(highlight_risk, subset=["Previous Status", "Current Status"])
+                .format(precision=1, subset=["Previous Score", "Current Score", "Change"]),
+                use_container_width=True
+            )
 
 
     # AT-RISK DETECTION
 
     elif page == "Students at Risk":
         st.subheader("Students at Risk")
-        st.caption("Risk Score = (Avg Marks × 0.6) + (Avg Attendance × 0.4) · Classification via Random Forest · Critical ≥55 · At Risk 35–54 · Safe <35")
-
-        c1, c2, c3 = st.columns(3)
-        c1.metric("🔴 Critical", int(n_critical))
-        c2.metric("🟡 At Risk",  int(n_at_risk))
-        c3.metric("🟢 Safe",     int(n_safe))
-
-        st.divider()
 
         fig_donut = px.pie(
             pd.DataFrame({"Status": ["Critical","At Risk","Safe"],
@@ -460,7 +585,7 @@ if file:
 
         st.divider()
 
-        filter_level = st.selectbox("Filter by risk level",
+        filter_level = st.selectbox("Filter by status level",
                                     ["All","Critical","At Risk","Safe"])
 
         display_cols = (["Roll_No","Risk_Level","Risk_Score"]
@@ -468,7 +593,8 @@ if file:
                         + [f"{s}_Attendance" for s in subjects])
 
         filtered = df if filter_level == "All" else df[df["Risk_Level"] == filter_level]
-        filtered = filtered.sort_values("Risk_Score")
+        filtered = filtered.sort_values("Risk_Score", ascending=False)
+        st.caption("Sorted by highest risk first")
 
         st.dataframe(
             filtered[display_cols]
@@ -480,8 +606,6 @@ if file:
     # STUDENT PORTAL
 
     elif page == "Student Portal":
-
-        # Clean portal header
         st.markdown("""
         <div style='text-align:center; padding: 20px 0 10px 0;'>
             <h2 style='color:#6366f1; font-size:1.8rem;'>Student Academic Performance Portal</h2>
@@ -493,7 +617,6 @@ if file:
 
         st.divider()
 
-        # Roll number input
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
             roll_input = st.text_input(
@@ -505,20 +628,25 @@ if file:
                                use_container_width=True)
 
         if search and roll_input:
+            # Fix 9: normalize both sides — strip whitespace, lowercase, try numeric fallback
+            def normalize_roll(val):
+                v = str(val).strip().lower()
+                try:
+                    return str(int(float(v)))
+                except (ValueError, TypeError):
+                    return v
 
-            # Search for student
-            match = df[df["Roll_No"].astype(str).str.strip() == roll_input.strip()]
+            roll_normalized = normalize_roll(roll_input)
+            match = df[df["Roll_No"].apply(normalize_roll) == roll_normalized]
 
             if match.empty:
                 st.error(f"❌ Roll number **{roll_input}** not found. Please check and try again.")
-
             else:
                 student = match.iloc[0]
                 rl      = student["Risk_Level"]
 
                 st.divider()
 
-                # Welcome banner
                 st.markdown(
                     f"""
                     <div style='
@@ -542,59 +670,61 @@ if file:
 
                 st.divider()
 
-                # Key metrics
                 marks_cols_list = [f"{s}_Marks" for s in subjects]
                 att_cols_list   = [f"{s}_Attendance" for s in subjects]
                 avg_marks  = round(student[marks_cols_list].mean(), 1)
                 avg_att    = round(student[att_cols_list].mean(), 1)
 
-                # ML prediction from Random Forest
-                student_features = student[feature_cols].values.reshape(1, -1)
-                ml_pred          = model.predict(student_features)[0]
-                ml_proba         = model.predict_proba(student_features)[0]
-                ml_classes       = model.classes_
-                ml_conf          = round(max(ml_proba) * 100, 1)
-
                 c1, c2, c3 = st.columns(3)
                 c1.metric("Your Avg Marks",      avg_marks)
                 c2.metric("Your Avg Attendance", f"{avg_att}%")
-                c3.metric("Your Risk Score",      student["Risk_Score"])
+                c3.metric("Risk Score (↓ lower is better)", student["Risk_Score"])
 
-                # ML prediction card
-                pred_color = RISK_COLOR[ml_pred]
-                pred_emoji = RISK_EMOJI[ml_pred]
-                st.markdown(
-                    f"""
-                    <div style='
-                        background:#111827;
-                        border:1px solid {pred_color}55;
-                        border-left: 4px solid {pred_color};
-                        border-radius:12px;
-                        padding:16px 24px;
-                        margin: 12px 0;
-                        display:flex;
-                        align-items:center;
-                        gap:16px;
-                    '>
-                        <div style='font-size:2rem'>{pred_emoji}</div>
-                        <div>
-                            <div style='color:#94a3b8; font-size:12px; text-transform:uppercase;
-                                        letter-spacing:1px; margin-bottom:4px'>
-                                ML Model Prediction (Random Forest)
-                            </div>
-                            <div style='color:{pred_color}; font-size:1.3rem; font-weight:700'>
-                                {ml_pred}
-                            </div>
-                            <div style='color:#64748b; font-size:12px; margin-top:2px'>
-                                Confidence: {ml_conf}%
-                            </div>
-                        </div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
+                fi_series = feature_importances.copy()
+                personal_impact = {}
+                for feat, imp in fi_series.items():
+                    val = student[feat]
+                    target = SAFE_MARKS if "_Marks" in feat else SAFE_ATTENDANCE
+                    gap = max(target - val, 0)
+                    # Only include features where student is below target
+                    if gap > 0:
+                        personal_impact[feat] = imp * (1 + gap / 100)
 
-                # Risk specific message
+                top5 = sorted(personal_impact.items(), key=lambda x: x[1], reverse=True)[:5]
+                top5_parts = []
+                for rank, (feat, gap_val) in enumerate(top5, 1):
+                    val    = round(student[feat], 1)
+                    target = SAFE_MARKS if "_Marks" in feat else SAFE_ATTENDANCE
+                    gap    = round(max(target - val, 0), 1)
+                    label  = feat.replace("_Marks", " Marks").replace("_Attendance", " Attendance")
+                    icon   = "📚" if "_Marks" in feat else "📅"
+                    gap_txt = f"<span style=\"color:#E24B4A;font-weight:600\">↑ {gap} needed</span>"
+                    top5_parts.append(
+                        f"<div style=\"display:flex;justify-content:space-between;align-items:center;"
+                        f"padding:8px 0;border-bottom:1px solid #1e293b\">"
+                        f"<div style=\"display:flex;align-items:center;gap:8px\">"
+                        f"<span style=\"color:#475569;font-size:12px;font-weight:700;width:16px\">{rank}</span>"
+                        f"<span style=\"font-size:1rem\">{icon}</span>"
+                        f"<span style=\"color:#e2e8f0;font-size:13px\">{label}</span>"
+                        f"</div>"
+                        f"<span style=\"color:#94a3b8;font-size:12px\">{val} &nbsp;{gap_txt}</span>"
+                        f"</div>"
+                    )
+
+                if top5_parts:
+                    top5_html = "".join(top5_parts)
+                    st.markdown(
+                        "<div style=\"background:#111827;border:1px solid rgba(99,102,241,0.3);"
+                        "border-left:4px solid #6366f1;border-radius:12px;padding:18px 24px;margin:12px 0\">"
+                        "<div style=\"color:#94a3b8;font-size:11px;text-transform:uppercase;"
+                        "letter-spacing:1.2px;margin-bottom:10px\">🎯 Your Top 5 Focus Areas</div>"
+                        + top5_html +
+                        "</div>",
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    st.success("🎯 All subjects are on target — nothing needs improvement right now!")
+
                 if rl == "Critical":
                     st.error(
                         "🚨 Your academic status is Critical. "
@@ -615,7 +745,6 @@ if file:
 
                 st.divider()
 
-                # Subject wise breakdown
                 st.subheader("Your Subject-wise Performance")
 
                 rows = []
@@ -674,7 +803,6 @@ if file:
 
                 st.divider()
 
-                # Visual bar chart for student
                 st.subheader("Your Marks vs Attendance")
 
                 chart_df = pd.DataFrame({
@@ -695,6 +823,11 @@ if file:
                         "Your Attendance": "#10b981",
                     }
                 )
+                
+                if len(subjects) == 1:
+                    fig.update_traces(width=0.3)
+                    fig.update_layout(bargap=0.8)
+                    
                 fig.add_hline(
                     y=SAFE_MARKS, line_dash="dash",
                     line_color="#E24B4A", line_width=2,
@@ -706,7 +839,6 @@ if file:
 
                 st.divider()
 
-                # Improvement summary for student
                 if rl != "Safe":
                     st.subheader("What You Need to Reach Safe Status")
 
@@ -729,28 +861,50 @@ if file:
         elif search and not roll_input:
             st.warning("Please enter your roll number first.")
 
-
     # AI REPORT
 
     elif page == "AI Report":
         st.subheader("AI Generated Student Report")
-        st.caption("Powered by Groq AI — generates a personalized academic report for each student")
+
 
         roll    = st.selectbox("Select Student", sorted(df["Roll_No"].astype(str), key=lambda x: int(x) if x.isdigit() else x))
         student = df[df["Roll_No"].astype(str) == roll].iloc[0]
-        rl      = student["Risk_Level"]
+
+        # Risk level is now derived from LR model prediction (consistent everywhere)
+        assigned_rl = student["Risk_Level"]
+
+        # Look up trend data for this student if previous dataset is loaded
+        trend_context = ""
+        if df_prev is not None:
+            prev_match = df_prev[df_prev["Roll_No"].astype(str).str.strip() == str(roll).strip()]
+            if not prev_match.empty:
+                prev_student    = prev_match.iloc[0]
+                prev_risk_score = prev_student["Risk_Score"]
+                prev_risk_level = prev_student["Risk_Level"]
+                change          = round(student["Risk_Score"] - prev_risk_score, 1)
+                if change > 2:
+                    trend_word = "declined"
+                elif change < -2:
+                    trend_word = "improved"
+                else:
+                    trend_word = "stable"
+                trend_context = (
+                    f"\nTrend vs Previous Month:\n"
+                    f"- Previous Status : {prev_risk_level} (Risk Score: {round(prev_risk_score,1)})"
+                    f"\n- Current Status  : {assigned_rl} (Risk Score: {student['Risk_Score']})"
+                    f"\n- Change          : {'+' if change > 0 else ''}{change} points ({trend_word})"
+                )
 
         st.markdown(
-            f"**Risk Status:** "
-            f"<span style='color:{RISK_COLOR[rl]};font-weight:600'>"
-            f"{RISK_EMOJI[rl]} {rl}</span> &nbsp;|&nbsp; "
+            f"**Assigned Status:** "
+            f"<span style='color:{RISK_COLOR.get(assigned_rl, '#e2e8f0')};font-weight:600'>"
+            f"{RISK_EMOJI.get(assigned_rl, '')} {assigned_rl}</span> &nbsp;|&nbsp; "
             f"**Risk Score:** {student['Risk_Score']}",
             unsafe_allow_html=True,
         )
 
         st.divider()
 
-        # Build subject details for prompt
         subject_details = ""
         for s in subjects:
             m     = round(student[f"{s}_Marks"], 1)
@@ -771,10 +925,10 @@ if file:
 You are an experienced academic advisor analyzing a student's performance data from a college.
 
 Student Roll No : {roll}
-Risk Level      : {rl}
-Risk Score      : {student['Risk_Score']} out of 100
+Assigned Status : {assigned_rl} (Score: {student['Risk_Score']}/100)
 Avg Marks       : {avg_marks} out of 100
 Avg Attendance  : {avg_att}%
+{trend_context}
 
 Subject-wise breakdown:
 {subject_details}
@@ -783,7 +937,7 @@ Safe target thresholds: {SAFE_MARKS} marks and {SAFE_ATTENDANCE}% attendance in 
 
 Write a professional and personalized academic performance report covering these sections:
 
-1. Overall Assessment — summarize the student's current academic standing clearly
+1. Overall Assessment — summarize the student's current academic standing. If trend data is provided, mention whether the student has improved, declined, or stayed stable compared to last month.
 2. Strong Areas — mention subjects where the student is doing well with specific numbers
 3. Areas of Concern — mention weak subjects with specific marks and attendance numbers and explain the impact
 4. Attendance Analysis — analyze the attendance pattern and its effect on performance
@@ -818,7 +972,6 @@ Important instructions:
 
                     st.divider()
 
-                    # Display report in styled card
                     st.markdown(
                         f"""
                         <div style='
@@ -840,7 +993,7 @@ Important instructions:
                     st.divider()
                     pdf_file = generate_pdf_report(
                     student_id=roll,
-                    risk_level=rl,
+                    risk_level=assigned_rl,
                     risk_score=student["Risk_Score"],
                     report_text=report
                    )
@@ -877,7 +1030,6 @@ if not file:
             <i class="fas fa-file-pdf" style="color:#6366f1; font-size:24px;"></i>
             <div style='color:#e2e8f0; font-weight:600; font-size:14px; margin:10px 0 6px 0'>Individual Student Reports</div>
         </div>
-
 
     </div>
     """, height=700)
