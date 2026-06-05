@@ -55,6 +55,7 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
+
 # CONSTANTS 
 
 RISK_COLOR = {"Critical": "#E24B4A", "At Risk": "#EF9F27", "Safe": "#1D9E75"}
@@ -62,6 +63,7 @@ RISK_EMOJI = {"Critical": "🔴",      "At Risk": "🟡",      "Safe": "🟢"}
 
 SAFE_MARKS      = 75
 SAFE_ATTENDANCE = 75
+
 
 # FUNCTIONS
 
@@ -90,8 +92,9 @@ def classify_risk(score):
     return "Safe"
 
 def train_lr_model(df, subjects):
-    """Linear Regression: predicts Performance Score from attendance features.
-    The predicted score is then used to classify risk level."""
+    """Linear Regression: fallback when no previous month data exists.
+    Trains on current data to learn the risk score relationship — used only
+    for risk classification, NOT for underperformance detection."""
     lr_feature_cols = [f"{s}_Marks" for s in subjects] + [f"{s}_Attendance" for s in subjects]
     X = df[lr_feature_cols]
     y = df["Risk_Score"]
@@ -109,6 +112,81 @@ def train_lr_model(df, subjects):
         mae = None
 
     return lr, lr_feature_cols, mae
+
+
+def train_lr_prev_to_curr(df_prev, df_curr, subjects):
+    """
+    Cross-month Linear Regression: trains on students present in BOTH months,
+    using PREVIOUS month marks+attendance (X) to predict CURRENT month
+    Performance Score (y). This correctly captures whether a student improved
+    or declined beyond what their prior trend would predict.
+
+    Returns:
+        lr_model     — trained model
+        feature_cols — input feature names (previous month marks + attendance)
+        mae          — mean absolute error on held-out students (or None if too few)
+        result_df    — Roll_No, Predicted_Score, Actual_Score, Performance_Delta, Verdict
+    """
+    feature_cols = [f"{s}_Marks" for s in subjects] + [f"{s}_Attendance" for s in subjects]
+
+    prev_sub = df_prev[["Roll_No"] + [c for c in feature_cols if c in df_prev.columns]].copy()
+    curr_sub = df_curr[["Roll_No"] + [c for c in feature_cols if c in df_curr.columns]].copy()
+
+    prev_sub["Roll_No"] = prev_sub["Roll_No"].astype(str).str.strip()
+    curr_sub["Roll_No"] = curr_sub["Roll_No"].astype(str).str.strip()
+
+    # Compute current month actual performance score
+    curr_sub["Actual_Score"] = curr_sub.apply(lambda r: performance_score(r, subjects), axis=1)
+
+    # Join on Roll_No — only students present in BOTH months
+    merged = prev_sub.merge(
+        curr_sub[["Roll_No", "Actual_Score"]],
+        on="Roll_No", how="inner"
+    ).dropna(subset=feature_cols)
+
+    if len(merged) < 5:
+        return None, feature_cols, None, None
+
+    X_all = merged[feature_cols]
+    y_all = merged["Actual_Score"]   # ← TARGET is CURRENT month score, not previous
+
+    if len(merged) >= 10:
+        X_train, X_test, y_train, y_test = train_test_split(
+            X_all, y_all, test_size=0.2, random_state=42
+        )
+        lr = LinearRegression()
+        lr.fit(X_train, y_train)
+        mae = round(mean_absolute_error(y_test, lr.predict(X_test)), 2)
+    else:
+        lr = LinearRegression()
+        lr.fit(X_all, y_all)
+        mae = None
+
+    # Predict for ALL current-month students using their previous month features
+    # (students without a previous month record will be skipped via the merge)
+    prev_input = prev_sub.copy()
+    prev_input[feature_cols] = prev_input[feature_cols].fillna(prev_sub[feature_cols].mean())
+    prev_input = prev_input.dropna(subset=feature_cols)
+    prev_input["Predicted_Score"] = lr.predict(prev_input[feature_cols]).clip(0, 100)
+
+    # Attach actual scores
+    result = prev_input[["Roll_No", "Predicted_Score"]].merge(
+        curr_sub[["Roll_No", "Actual_Score"]], on="Roll_No", how="inner"
+    )
+
+    result["Performance_Delta"] = (result["Actual_Score"] - result["Predicted_Score"]).round(2)
+
+    def perf_verdict(delta):
+        if delta >= 5:
+            return "⬆️ Outperformed"
+        elif delta <= -5:
+            return "⬇️ Underperformed"
+        else:
+            return "➡️ As Expected"
+
+    result["Verdict"] = result["Performance_Delta"].apply(perf_verdict)
+
+    return lr, feature_cols, mae, result[["Roll_No", "Predicted_Score", "Actual_Score", "Performance_Delta", "Verdict"]]
 
 
 def train_rf_model(df, subjects):
@@ -228,6 +306,7 @@ def generate_pdf_report(student_id, risk_level, risk_score, report_text):
     buffer.seek(0)
 
     return buffer
+
 
 # SIDEBAR
 
@@ -381,6 +460,7 @@ if file:
 
         df.fillna(df.mean(numeric_only=True), inplace=True)
 
+
     # VALIDATE 
     if "Roll_No" not in df.columns:
         st.error("No Roll / Student ID column found.")
@@ -396,43 +476,14 @@ if file:
         with st.expander("⚠️ Data quality warnings"):
             for w in warnings: st.warning(w)
 
+
     # COMPUTE
     
     df["Score"]      = df.apply(lambda x: performance_score(x, subjects), axis=1)
     df["Risk_Score"] = df.apply(lambda x: risk_score(x, subjects), axis=1)
     df["Risk_Level"] = df["Risk_Score"].apply(classify_risk)
 
-    cache_key = f"model_{file.name}_{len(df)}"
-    if st.session_state.get("model_cache_key") != cache_key:
-        # Linear Regression — classifies risk via predicted performance score
-        lr_model, lr_feature_cols, lr_mae = train_lr_model(df, subjects)
-        # Random Forest — feature importance only (drives Top 5 focus areas)
-        rf_model, rf_feature_cols, feature_importances = train_rf_model(df, subjects)
-
-        st.session_state["model_cache_key"]     = cache_key
-        st.session_state["lr_model"]            = lr_model
-        st.session_state["lr_feature_cols"]     = lr_feature_cols
-        st.session_state["lr_mae"]              = lr_mae
-        st.session_state["rf_model"]            = rf_model
-        st.session_state["rf_feature_cols"]     = rf_feature_cols
-        st.session_state["feature_importances"] = feature_importances
-    else:
-        lr_model            = st.session_state["lr_model"]
-        lr_feature_cols     = st.session_state["lr_feature_cols"]
-        lr_mae              = st.session_state["lr_mae"]
-        rf_model            = st.session_state["rf_model"]
-        rf_feature_cols     = st.session_state["rf_feature_cols"]
-        feature_importances = st.session_state["feature_importances"]
-
-    # Use LR to classify risk: predict score → apply classify_risk threshold
-    df["LR_Predicted_Score"] = lr_model.predict(df[lr_feature_cols]).clip(0, 100)
-    df["Risk_Level"] = df["LR_Predicted_Score"].apply(classify_risk)
-
-    n_critical = (df["Risk_Level"] == "Critical").sum()
-    n_at_risk  = (df["Risk_Level"] == "At Risk").sum()
-    n_safe     = (df["Risk_Level"] == "Safe").sum()
-
-    # Fix 3: Process previous dataset for trend comparison
+    # Load & process previous month dataset (must be done before cross-month prediction)
     df_prev = None
     if file_prev:
         try:
@@ -480,6 +531,64 @@ if file:
             st.warning(f"⚠️ Could not process previous dataset: {e}")
             df_prev = None
 
+    cache_key = f"model_{file.name}_{len(df)}"
+    if st.session_state.get("model_cache_key") != cache_key:
+        # Linear Regression — classifies risk via predicted performance score
+        lr_model, lr_feature_cols, lr_mae = train_lr_model(df, subjects)
+        # Random Forest — feature importance only (drives Top 5 focus areas)
+        rf_model, rf_feature_cols, feature_importances = train_rf_model(df, subjects)
+
+        st.session_state["model_cache_key"]     = cache_key
+        st.session_state["lr_model"]            = lr_model
+        st.session_state["lr_feature_cols"]     = lr_feature_cols
+        st.session_state["lr_mae"]              = lr_mae
+        st.session_state["rf_model"]            = rf_model
+        st.session_state["rf_feature_cols"]     = rf_feature_cols
+        st.session_state["feature_importances"] = feature_importances
+    else:
+        lr_model            = st.session_state["lr_model"]
+        lr_feature_cols     = st.session_state["lr_feature_cols"]
+        lr_mae              = st.session_state["lr_mae"]
+        rf_model            = st.session_state["rf_model"]
+        rf_feature_cols     = st.session_state["rf_feature_cols"]
+        feature_importances = st.session_state["feature_importances"]
+
+    df["LR_Predicted_Score"] = lr_model.predict(df[lr_feature_cols]).clip(0, 100)
+    df["Risk_Level"] = df["LR_Predicted_Score"].apply(classify_risk)
+
+    # Cross-month prediction: train on prev month → predict what current month SHOULD look like
+    prediction_table = None
+    lr_cross_mae     = None
+    if df_prev is not None:
+        shared_subjects = [s for s in subjects
+                           if f"{s}_Marks" in df_prev.columns and f"{s}_Attendance" in df_prev.columns]
+        if shared_subjects:
+            cross_cache_key = f"cross_{file.name}_{file_prev.name}_{len(df)}"
+            if st.session_state.get("cross_cache_key") != cross_cache_key:
+                _, _, lr_cross_mae, prediction_table = train_lr_prev_to_curr(df_prev, df, shared_subjects)
+                st.session_state["cross_cache_key"]   = cross_cache_key
+                st.session_state["prediction_table"]  = prediction_table
+                st.session_state["lr_cross_mae"]      = lr_cross_mae
+            else:
+                prediction_table = st.session_state["prediction_table"]
+                lr_cross_mae     = st.session_state["lr_cross_mae"]
+
+            # Merge verdict back into main df so Student Portal and AI Report can use it
+            if prediction_table is not None:
+                df["Roll_No"] = df["Roll_No"].astype(str).str.strip()
+                df = df.merge(
+                    prediction_table[["Roll_No", "Predicted_Score", "Actual_Score",
+                                      "Performance_Delta", "Verdict"]],
+                    on="Roll_No", how="left"
+                )
+    else:
+        prediction_table = None
+        lr_cross_mae     = None
+
+    n_critical = (df["Risk_Level"] == "Critical").sum()
+    n_at_risk  = (df["Risk_Level"] == "At Risk").sum()
+    n_safe     = (df["Risk_Level"] == "Safe").sum()
+
     # CLASS OVERVIEW
 
     if page == "Class Overview":
@@ -522,7 +631,7 @@ if file:
         fig.update_layout(margin=dict(l=10, r=10, t=50, b=10),transition_duration=500)
         st.plotly_chart(fig, use_container_width=True)
 
-        # Fix 3: Trend comparison table
+        # Trend comparison table
         if df_prev is not None:
             st.divider()
             st.subheader("Month-on-Month Progress")
@@ -563,6 +672,7 @@ if file:
                 .format(precision=1, subset=["Previous Score", "Current Score", "Change"]),
                 use_container_width=True
             )
+
 
 
     # AT-RISK DETECTION
@@ -678,6 +788,66 @@ if file:
                 c1.metric("Your Avg Marks",      avg_marks)
                 c2.metric("Your Avg Attendance", f"{avg_att}%")
                 c3.metric("Risk Score (↓ lower is better)", student["Risk_Score"])
+
+                # Show LR prediction verdict if previous month data available
+                if "Verdict" in student and pd.notna(student.get("Verdict")):
+                    verdict       = student["Verdict"]
+                    delta         = round(student.get("Performance_Delta", 0), 1)
+                    pred_score    = round(student.get("Predicted_Score", 0), 1)
+                    actual_score  = round(student.get("Actual_Score", 0), 1)
+                    delta_sign    = "+" if delta >= 0 else ""
+
+                    verdict_color = (
+                        "#1D9E75" if "⬆️" in verdict else
+                        "#E24B4A" if "⬇️" in verdict else
+                        "#EF9F27"
+                    )
+                    verdict_msg = (
+                        "You exceeded what your previous month's trend predicted — great improvement!"
+                        if "⬆️" in verdict else
+                        "You scored below what your previous month's trend predicted — you can do better."
+                        if "⬇️" in verdict else
+                        "You performed in line with what your previous month's trend predicted."
+                    )
+                    st.markdown(
+                        f"""
+                        <div style='
+                            background:#111827;
+                            border:1px solid rgba(99,102,241,0.2);
+                            border-left:4px solid {verdict_color};
+                            border-radius:12px;
+                            padding:16px 22px;
+                            margin:14px 0;
+                        '>
+                            <div style='color:#94a3b8;font-size:11px;text-transform:uppercase;
+                                        letter-spacing:1.2px;margin-bottom:8px'>
+                                🤖 LR Prediction (trained on previous month)
+                            </div>
+                            <div style='display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px'>
+                                <div>
+                                    <span style='color:{verdict_color};font-size:1.1rem;font-weight:700'>{verdict}</span>
+                                    <span style='color:#94a3b8;font-size:13px;margin-left:10px'>{verdict_msg}</span>
+                                </div>
+                                <div style='display:flex;gap:24px;'>
+                                    <div style='text-align:center'>
+                                        <div style='color:#94a3b8;font-size:11px'>Predicted</div>
+                                        <div style='color:#e2e8f0;font-weight:600'>{pred_score}</div>
+                                    </div>
+                                    <div style='text-align:center'>
+                                        <div style='color:#94a3b8;font-size:11px'>Actual</div>
+                                        <div style='color:#e2e8f0;font-weight:600'>{actual_score}</div>
+                                    </div>
+                                    <div style='text-align:center'>
+                                        <div style='color:#94a3b8;font-size:11px'>Delta</div>
+                                        <div style='color:{verdict_color};font-weight:700'>{delta_sign}{delta}</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+
 
                 fi_series = feature_importances.copy()
                 personal_impact = {}
@@ -887,11 +1057,21 @@ if file:
                     trend_word = "improved"
                 else:
                     trend_word = "stable"
+                # Include LR prediction verdict if available
+                lr_prediction_context = ""
+                if "Verdict" in student and pd.notna(student.get("Verdict")):
+                    lr_prediction_context = (
+                        f"\n- LR Model Prediction : Expected score {round(student.get('Predicted_Score', 0), 1)}, "
+                        f"Actual score {round(student.get('Actual_Score', 0), 1)}, "
+                        f"Delta {round(student.get('Performance_Delta', 0), 1):+.1f} → {student['Verdict']}"
+                    )
+
                 trend_context = (
                     f"\nTrend vs Previous Month:\n"
                     f"- Previous Status : {prev_risk_level} (Risk Score: {round(prev_risk_score,1)})"
                     f"\n- Current Status  : {assigned_rl} (Risk Score: {student['Risk_Score']})"
                     f"\n- Change          : {'+' if change > 0 else ''}{change} points ({trend_word})"
+                    + lr_prediction_context
                 )
 
         st.markdown(
